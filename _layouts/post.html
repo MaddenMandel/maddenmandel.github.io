@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  {% include head.html %}
+  <head>
+    <!-- style sheet of Vssue -->
+    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+  </head>
+  <body>
+  {% include header.html %}
+  <section id="content">
+    <div class="container m-t-lg m-b-lg">
+      <div class="row">
+        <div class="col-sm-12">
+          <div class="blog-post">
+          <!-- Begin Post -->
+            <div class="post-item">
+              <div class="caption wrapper-lg">
+                <h4 class="post-title">{{ page.title }}</h4>
+                <div class="progress progress-xxs m-t-sm">
+                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                </div>
+                <div class="post-sum">
+                  {{ content }}
+                </div>
+
+                <div id="vssue"></div>
+                <!-- Introduce Vue first -->
+
+                <!-- vue runtime build (runtime only)  -->
+                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
+                <!-- OR: vue full build (runtime + compiler)  -->
+                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
+
+                <!-- Introduce Vssue after Vue -->
+
+                <!-- Vssue Github build -->
+                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
+                <!-- Use Vssue as a Vue component -->
+
+                <!-- use render function for vue runtime build -->
+                <script>
+                  new Vue({
+                    el: '#vssue',
+
+                    render: h => h('Vssue', {
+                      props: {
+                        // here set the title of issue of current page
+                        title: 'Vssue Dev',
+
+                        // here set the options for your OAuth App
+                        options: {
+                          owner: '{{site.github_username}}',
+                          repo: '{{site.repo}}',
+                          clientId: '{{site.ClientID}}',
+                          clientSecret: '{{site.ClientSecret}}', // only required for some of the platforms
+                        },
+                      }
+                    })
+                  })
+                </script>
+
+                <section class="panel panel-default">
+                  <div class="panel-body">
+                    <a href="https://github.com/{{ site.github_username }}" class="thumb pull-right m-l">
+                      <img src="/assets/images/avatar.png" class="img-circle">
+                    </a>
+                    <div class="clear">
+                      <p>
+                        <small class="block text-muted">
+                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
+
+                          {% if page.author %}<a href="https://github.com/{{ site.github_username }}" class="text-info">@{{ page.author }} <i class="icon-twitter"></i></a>{% endif %}
+
+                          <i class="fa fa-clock-o icon-muted"></i> {{ page.date | date: "%b %-d, %Y" }}
+
+                          {% if page.meta %}<a href="#" class="m-l-sm"><i class="fa fa-comment-o icon-muted"></i> {{ page.meta }}{% endif %}
+                        </small>
+                      </p>
+                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          <!-- End Post -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </body>
+</html>

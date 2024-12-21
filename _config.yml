@@ -1,20 +1,26 @@
-title: "Madden Mandel's Blog"  # 博客标题
-description: "一个基于 Minimal Mistakes 的技术博客"  # 博客描述
-url: "https://MaddenMandel.github.io"  # 你的博客地址
-baseurl: ""  # 如果你是根目录，请保持为空
-author:
-  name: "Madden Mandel"
-  email: "zhangxuegang@gmail.com"
-  avatar: "/assets/images/avatar.png"  # 头像路径，可用默认或自定义图片
-  description: "一个喜欢分享技术的开发者"
+# Site settings
+title: "maddenmandel"
+baseurl: "" # the subpath of your site, e.g. /blog/
+url: "https://maddenmandel.github.io" # the base hostname & protocol for your site
+github_username: unionstars
 
-theme: minimal-mistakes-jekyll
+timezone: Beijing
+plugins: ['jekyll-paginate']
 
-plugins:
-  - jekyll-feed  # RSS 支持
-  - jekyll-seo-tag  # SEO 支持
-  - jekyll-sitemap  # 网站地图
-  - jekyll-paginate  # 分页支持
+# Build settings
+highlighter: rouge
+permalink: /:categories/:title/
 
-markdown: kramdown  # 默认使用 kramdown 渲染 Markdown
-paginate: 5  # 每页显示的文章数
+markdown: kramdown
+# markdown: redcarpet
+redcarpet:
+  extensions: ['fenced_code_blocks', 'tables']
+
+paginate: 25
+
+github: [metadata]
+
+githubID: maddenmandel
+repo: maddenmandel.github.io
+ClientID: 264a95d2f3b06c2aed0a
+ClientSecret: 55a241c0c1220ea55de6fcc2fdc77dfd4db3378d
