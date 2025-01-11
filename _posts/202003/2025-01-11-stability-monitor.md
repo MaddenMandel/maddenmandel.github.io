@@ -4,7 +4,7 @@ title:  "如何快速基于普罗米修斯实现系统可观测性"
 date:   2025-01-11 12:00:00
 
 categories: tool
-tags: archtecture stability
+tags: archtecture refactoring tool
 author: "XueGang Zhang"
 image: /images/logo.png
 comments: true
