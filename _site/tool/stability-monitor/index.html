@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>maddenmandel - 如何快速基于普罗米修斯实现系统可观测性</title>
+    <meta name="description" content="">
+
+    <link rel="stylesheet" href="/assets/css/bootstrap.css">
+    <link rel="stylesheet" href="/assets/css/animate.css">
+    <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/css/font.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/highlight.css">
+    <link rel="stylesheet" href="/assets/css/custom.css">
+
+    <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
+</head>
+
+  <head>
+    <!-- style sheet of Vssue -->
+    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+  </head>
+  <body>
+  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+  <div class="container">
+    <div class="navbar-header">
+      <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
+      <button class="btn btn-link visible-xs" type="button" data-toggle="collapse" data-target=".navbar-collapse">
+        <i class="fa fa-bars"></i>
+      </button>
+    </div>
+    <div class="collapse navbar-collapse">
+      <ul class="nav navbar-nav navbar-right">
+        <li><a href="/">Home</a></li>
+        <li><a href="/tags/">Tags</a></li>
+        <li><a href="/feed.xml">RSS</a></li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+  <section id="content">
+    <div class="container m-t-lg m-b-lg">
+      <div class="row">
+        <div class="col-sm-12">
+          <div class="blog-post">
+          <!-- Begin Post -->
+            <div class="post-item">
+              <div class="caption wrapper-lg">
+                <h4 class="post-title">如何快速基于普罗米修斯实现系统可观测性</h4>
+                <div class="progress progress-xxs m-t-sm">
+                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                </div>
+                <div class="post-sum">
+                  <h3 id="背景介绍">背景介绍</h3>
+<p>系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面：
+| 监控维度 | 监控核心内容    | 监控核心指标 |
+|——|———–|——–|
+| 物理资源 | 网络、物理机、容器 |        |
+|    中间件  |           |        |</p>
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />体系架构设计</li>
+</ul>
+
+<!--  -->
+<p>you yisi<sup id="fnref:1" role="doc-noteref"><a href="#fn:1" class="footnote" rel="footnote">1</a></sup></p>
+
+<p>+——————–+       +———————–+
+|   Exporters        | —-&gt; |   Prometheus          |
+| (Node, MySQL, etc) |       | (Metrics Collection)  |
++——————–+       +———————–+
+^                                |
+|                                v
++——————–+       +———————–+
+|  Application Logs  | —-&gt; | Loki (Log Aggregation)|
++——————–+       +———————–+
+^                                |
+|                                v
++——————–+       +———————–+
+|  Services (Tracing)| —-&gt; | Jaeger (Tracing)      |
++——————–+       +———————–+
+|                                |
+v                                v
++——————–+       +———————–+
+|  Blackbox Exporter | —-&gt; | Grafana (Visualization|
+| (Health Checks)    |       |   and Alerts)         |
++——————–+       +———————–+</p>
+
+<h3 id="主流分布式调度技术比较">主流分布式调度技术比较</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>功能列表</th>
+      <th>elastic-job</th>
+      <th>XXL-JOB</th>
+      <th>easyJob</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>任务分片</td>
+      <td>√</td>
+      <td>√</td>
+      <td>√</td>
+    </tr>
+    <tr>
+      <td>高可用</td>
+      <td>基于zookeeper</td>
+      <td>基于数据库</td>
+      <td>基于数据库</td>
+    </tr>
+    <tr>
+      <td>任务编排</td>
+      <td>×</td>
+      <td>通过子任务依赖来实现</td>
+      <td>完善的DAG功能</td>
+    </tr>
+    <tr>
+      <td>失效转移</td>
+      <td>开启了失效转以后，机器宕机其它机器会立马争抢任务执行</td>
+      <td>执行失败后，记录失败状态，通过后台的守护线程，重新执行失败的任务</td>
+      <td>没有失败转移的功能，任务执行失败，可以配置告警，人工介入</td>
+    </tr>
+    <tr>
+      <td>动态分片</td>
+      <td>比较完善的分片策略，包括随机、Hash等，提供了扩展点，可以自己实现</td>
+      <td>任务分给执行器可以选择多种算法，动态分片是通过分片广播，客户端代码在实现jobHandler时可以获取分片参数，分片处理自己的数据</td>
+      <td>通过子任务分片，被随机的客户端取走</td>
+    </tr>
+  </tbody>
+</table>
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />- [ ] - [ ] - [ ] [^4]: <img src="" alt="![[]()]()" /></li>
+</ul>
+<div class="footnotes" role="doc-endnotes">
+  <ol>
+    <li id="fn:1" role="doc-endnote">
+      <p><sup id="fnref:2" role="doc-noteref"><a href="#fn:2" class="footnote" rel="footnote">2</a></sup> <a href="#fnref:1" class="reversefootnote" role="doc-backlink">&#8617;</a></p>
+    </li>
+    <li id="fn:2" role="doc-endnote">
+      <p><sup id="fnref:3" role="doc-noteref"><a href="#fn:3" class="footnote" rel="footnote">3</a></sup> <a href="#fnref:2" class="reversefootnote" role="doc-backlink">&#8617;</a></p>
+    </li>
+    <li id="fn:3" role="doc-endnote">
+      <p>[^4] <a href="#fnref:3" class="reversefootnote" role="doc-backlink">&#8617;</a></p>
+    </li>
+  </ol>
+</div>
+
+                </div>
+
+                <div id="vssue"></div>
+                <!-- Introduce Vue first -->
+
+                <!-- vue runtime build (runtime only)  -->
+                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
+                <!-- OR: vue full build (runtime + compiler)  -->
+                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
+
+                <!-- Introduce Vssue after Vue -->
+
+                <!-- Vssue Github build -->
+                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
+                <!-- Use Vssue as a Vue component -->
+
+                <!-- use render function for vue runtime build -->
+                <script>
+                  new Vue({
+                    el: '#vssue',
+
+                    render: h => h('Vssue', {
+                      props: {
+                        // here set the title of issue of current page
+                        title: 'Vssue Dev',
+
+                        // here set the options for your OAuth App
+                        options: {
+                          owner: 'maddenmandel',
+                          repo: 'maddenmandel.github.io',
+                          clientId: '264a95d2f3b06c2aed0a',
+                          clientSecret: '55a241c0c1220ea55de6fcc2fdc77dfd4db3378d', // only required for some of the platforms
+                        },
+                      }
+                    })
+                  })
+                </script>
+
+                <section class="panel panel-default">
+                  <div class="panel-body">
+                    <a href="https://github.com/maddenmandel" class="thumb pull-right m-l">
+                      <img src="/assets/images/avatar.png" class="img-circle">
+                    </a>
+                    <div class="clear">
+                      <p>
+                        <small class="block text-muted">
+                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
+
+                          <a href="https://github.com/maddenmandel" class="text-info">@XueGang Zhang <i class="icon-twitter"></i></a>
+
+                          <i class="fa fa-clock-o icon-muted"></i> Jan 11, 2025
+
+                          
+                        </small>
+                      </p>
+                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          <!-- End Post -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </body>
+</html>
