@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>maddenmandel</title>
+    <meta name="description" content="">
+
+    <link rel="stylesheet" href="/assets/css/bootstrap.css">
+    <link rel="stylesheet" href="/assets/css/animate.css">
+    <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/css/font.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/highlight.css">
+    <link rel="stylesheet" href="/assets/css/custom.css">
+
+    <link rel="canonical" href="http://localhost:4000/">
+</head>
+
+  <body>
+  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+  <div class="container">
+    <div class="navbar-header">
+      <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
+      <button class="btn btn-link visible-xs" type="button" data-toggle="collapse" data-target=".navbar-collapse">
+        <i class="fa fa-bars"></i>
+      </button>
+    </div>
+    <div class="collapse navbar-collapse">
+      <ul class="nav navbar-nav navbar-right">
+        <li><a href="/">Home</a></li>
+        <li><a href="/tags/">Tags</a></li>
+        <li><a href="/feed.xml">RSS</a></li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+  <section id="content">
+    <div class="container m-t-lg m-b-lg">
+      <div class="row">
+        <div class="col-sm-9">
+          <div class="blog-post">
+            
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/distribute-job/">分布式任务调度系统实现原理与选型</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>背景介绍 针对分布式跑批任务进行调研，选择合适于当前场景下的任务调度系统，对其进行改造以应用于生产环境。任务调度最直接简单的方式就是利用Lunix自带的任务Crontab，但是在任务执行监控、日志查看等任务管理上都存在很多的问题。现在的开源系统分为两类：以 Quartz 为代表的定时类调度系统和以 DAG 为核心的工作流调度系统。首先看看定时类调度系统，它们的设计核心是定时运行、数据分片和弹性扩容，但是对依赖关系支持的不太友好，更适用于后端业务开发，其代表为 XXL-JOB 、Elastic-Job 。而数据团队最常见的操作是的 ETL （抽取、转换和加载数据），更强调的是任务的依赖关系，所以关注点便是以 DAG 为核心的工作流调度系统了。 任务调度系统核心功能 任务分片：对于一个大型任务，需要支持分片并行执行。 高可用: 调度系统自身必须保证高可用。 任务编排：任务与任务之间可以进行次序的编排。 失效转移: 当前节点宕机时，该节点的任务可以转移到其它节点执行。...<br>
+      <!-- <p><h3 id="背景介绍">背景介绍</h3> <p>针对分布式跑批任务进行调研，选择合适于当前场景下的任务调度系统，对其进行改造以应用于生产环境。任务调度最直接简单的方式就是利用Lunix自带的任务Crontab，但是在任务执行监控、日志查看等任务管理上都存在很多的问题。现在的开源系统分为两类：以 Quartz 为代表的定时类调度系统和以 DAG 为核心的工作流调度系统。首先看看定时类调度系统，它们的设计核心是定时运行、数据分片和弹性扩容，但是对依赖关系支持的不太友好，更适用于后端业务开发，其代表为 XXL-JOB 、Elastic-Job 。而数据团队最常见的操作是的 ETL （抽取、转换和加载数据），更强调的是任务的依赖关系，所以关注点便是以 DAG 为核心的工作流调度系统了。</p> <h3 id="任务调度系统核心功能">任务调度系统核心功能</h3> <ul> <li>任务分片：对于一个大型任务，需要支持分片并行执行。</li> <li>高可用: 调度系统自身必须保证高可用。</li>...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/kafka/">kafka内部结构以及如何保证高可靠</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>背景介绍 Kafka 起初是由 LinkedIn 公司开发的一个分布式的消息系统，后成为 Apache 的一部分，它使用 Scala 编写，以可水平扩展和高吞吐率而被广泛使用。目前越来越多的开源分布式处理系统如 Cloudera、Apache Storm、Spark 等都支持与 Kafka 集成。 Kafka作为一个商业级消息中间件，消息可靠性的重要性可想而知。如何确保消息的精确传输?如何确保消息的准确存储?如何确保消息的正确消费? 本文首先从Kafka的架构着手，先了解下Kafka的基本原理，然后通过对kakfa的存储机制、复制原理、同步原理、可靠性和持久性保证等等一步步对其可靠性进行分析， 名词解释 名称 解释 Broker...<br>
+      <!-- <p><h4 id="背景介绍">背景介绍</h4> <p>Kafka 起初是由 LinkedIn 公司开发的一个分布式的消息系统，后成为 Apache 的一部分，它使用 Scala 编写，以可水平扩展和高吞吐率而被广泛使用。目前越来越多的开源分布式处理系统如 Cloudera、Apache Storm、Spark 等都支持与 Kafka 集成。</p> <p>Kafka作为一个商业级消息中间件，消息可靠性的重要性可想而知。如何确保消息的精确传输?如何确保消息的准确存储?如何确保消息的正确消费? 本文首先从Kafka的架构着手，先了解下Kafka的基本原理，然后通过对kakfa的存储机制、复制原理、同步原理、可靠性和持久性保证等等一步步对其可靠性进行分析，</p> <h4 id="名词解释">名词解释</h4> <table>...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/cyclomatic_complexity/">如何降低代码的圈复杂度</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>背景介绍 不管小型公司还是大型互联网公司，很多项目债台高筑，新功能开发困难。其中一个很大的原因就是代码复杂，可读性差。Sonar开发团队曾上纲上线的戏称开发人员的7宗罪，其中很关键的一条就是“复杂度”。 如何有效地解决代码的圈复杂度来提高代码的可读性？ 你好，我是张学刚。 我今天分享的是如何有效地解决代码的圈复杂度来提高代码的可读性？代码可维护性是代码质量的一个重要标准，而复杂度又是可维护性的一个重要指标。那复杂度有没有一个明确的衡量标准，我们又如何去解决代码的圈复杂度呢？今天我在这里和大家聊一下。 圈复杂度的计算方法 点边计算法 圈复杂度的计算方式 M = E − N + 2 E：控制流图中边的数量 N：控制流图中的节点数量 控制流程图就是通过节点和边组成的图形，比如以下几个图形是典型的控制流程图。 你好，我是张学刚。 我今天分享的是如何有效地解决代码的圈复杂度来提高代码的可读性？代码可维护性是代码质量的一个重要标准，而复杂度又是可维护性的一个重要指标。那复杂度有没有一个明确的衡量标准，我们又如何去解决代码的圈复杂度呢？今天我在这里和大家聊一下。...<br>
+      <!-- <p><h4 id="背景介绍">背景介绍</h4> <p>不管小型公司还是大型互联网公司，很多项目债台高筑，新功能开发困难。其中一个很大的原因就是代码复杂，可读性差。Sonar开发团队曾上纲上线的戏称开发人员的7宗罪，其中很关键的一条就是“复杂度”。</p> <h4 id="如何有效地解决代码的圈复杂度来提高代码的可读性">如何有效地解决代码的圈复杂度来提高代码的可读性？</h4> <p>你好，我是张学刚。</p> <p>我今天分享的是如何有效地解决代码的圈复杂度来提高代码的可读性？代码可维护性是代码质量的一个重要标准，而复杂度又是可维护性的一个重要指标。那复杂度有没有一个明确的衡量标准，我们又如何去解决代码的圈复杂度呢？今天我在这里和大家聊一下。</p> <h4 id="圈复杂度的计算方法">圈复杂度的计算方法</h4> <h5 id="点边计算法">点边计算法</h5> <p>圈复杂度的计算方式 <code class="language-plaintext highlighter-rouge">M = E − N +...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/hot_account/">如何识别与解决热点账户</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>背景介绍 账务系统作为互联金融领域的基石系统，承载着所有账户的资金管控，那保证它的稳定可靠是系统建设的第一要务，我们知道在数据库中某个账户余额是一行记录，如果一个大商户每天出入金巨大，那就涉及到对该行记录频繁的更新，这对数据库是巨大的考验，接下来我就和大家一起聊一聊怎么去解决和规避这种频繁的操作问题。 今天分享的是关于如何解决互联网热点账户的问题。互联网解决了人们交易活动地域上的限制，产生了很多巨无霸的商家，对这些巨无霸商家交易账户的操作就成了热点操作，这些热点操作主要体现在账户的明细和余额上面，而这两个操作的更新又是在一个事务中进行的，但是对余额操作是稀缺的资源，所以更新余额就成了瓶颈。今天我和大家一起来聊一下如何解决和规避热点账户的问题（图1）。 图1 三户模型 如图所示，上面是某个商户的交易数据，假设4个交易数据同时过来，它们同时对明细进行插入，然后更新余额，这个时候我们可以看到，因为他们更新的是同一个账户的余额，所以这个时候，需要竞争对该行的操作权。该行成为热点行。这也就是我们上边所说的热点账户问题。 我们上边聊到了账户，那我们先来看一下什么是账户呢？支付行业的账户体系一般是基于三户模型，它们分别是客户、用户和账户。客户一般来说是一个比较社会化的概念，比如一个自然人和一个法人都可以被称之为客户，在系统中我们会将客户划分为个人和企业；用户是指客户在系统中登录账号的相关信息：包括账号、密码、角色、权限这些；账户是指我们为客户进行交易活动而开设的虚拟账户，主要与交易记账相关，我们说的热点账户，指的就是这个账户（图2）。 图2 通过这个图我们可以看出，客户、用户、和账户之间的关系。一般一个客户，可以注册多个用户，也可以在不同的业务下开通多个账户，所以客户和用户以及客户与账户之间都是一个1对多的关系。一个用户呢可以操作多个账户，反过来多个账户也可以同时被一个用户操作，用户和账户之间是多对多的关系。 热点账户的分 那现在我们知道什么是账户和热点账户了，那热点账户有哪些分类呢，一般我们按资金发生的方向来分，可以分为加频账户、减频账户和双频账户，顾名思义，加频账户就是入金比较频繁的账户，比如募捐账户是典型的加频账户，这次新冠病毒的疫情组织的一些筹款活动，大家的爱国热情特别高，募捐的账户接受大量的捐款信息。假设用户的付款方式都是通过在第三方支付里开设的虚拟账户进行出款,募捐账户的金额到达目标金额后进行结算，那我们看一下他的资金流。(图3) 图3 减频/双频账户 我们看到，这个时候大量的资金同时进入受款商户的待清算户，这个受款商户的待清算户成为加频热点账户。 与加频账户对应的就是减频账户，比如给员工发公司的账户、平台在第三方支付公司为增加用户体验设置的退款垫资户，这些都是典型的减频账户。双频账户也比较好理解，比如是电商平台性质的商户在支付公司的一个资金流(图4)。 图4 用户在平台进行下单购物，这个时候的该用户的钱，会先收取到该平台在第三方支付公司开设的内部户，然后转账给该平台的商户。这个时候该平台在第三方支付开设的内部户，就是一个双频账户。 解决热点账户的问题 限流 介绍完上边的几类账户，现在进入我今天的重点部分，那就是如何去解决这些热点账户的问题？这里我介绍一下支付公司常用的几种方法。我们上边也说了，热点账户的瓶颈是因为大家同时竞争对余额的操作权，更新余额成为稀缺资源，那么我们核心宗旨减少单位时间内对余额的操作。首先我们来看一下第一种方式，限流。限流与缓存...<br>
+      <!-- <p><h4 id="背景介绍">背景介绍</h4> <p>账务系统作为互联金融领域的基石系统，承载着所有账户的资金管控，那保证它的稳定可靠是系统建设的第一要务，我们知道在数据库中某个账户余额是一行记录，如果一个大商户每天出入金巨大，那就涉及到对该行记录频繁的更新，这对数据库是巨大的考验，接下来我就和大家一起聊一聊怎么去解决和规避这种频繁的操作问题。</p> <p>今天分享的是关于如何解决互联网热点账户的问题。互联网解决了人们交易活动地域上的限制，产生了很多巨无霸的商家，对这些巨无霸商家交易账户的操作就成了热点操作，这些热点操作主要体现在账户的明细和余额上面，而这两个操作的更新又是在一个事务中进行的，但是对余额操作是稀缺的资源，所以更新余额就成了瓶颈。今天我和大家一起来聊一下如何解决和规避热点账户的问题（图1）。</p> <p align="center"> <img src="https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/01.png?style=centerme" alt="Sample" width="50%" height="50%" /> <p align="center"> <em>图1</em> </p> </p> <h4 id="三户模型">三户模型</h4> <p>如图所示，上面是某个商户的交易数据，假设4个交易数据同时过来，它们同时对明细进行插入，然后更新余额，这个时候我们可以看到，因为他们更新的是同一个账户的余额，所以这个时候，需要竞争对该行的操作权。该行成为热点行。这也就是我们上边所说的热点账户问题。</p>...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/microservices_arc/">微服务架构设计模式</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>概述 我们最开始一般采用单体架构去创建应用程序，单体架构中，初始化、配置、监控和管理各种复杂的功能捆绑在一起，当业务快速发发展时，这就给开发和运维带来了挑战。由于单体架构开发上运维上的问题，软件行业开始尝试新的东西，亚马逊早在2002年左右开始逐步从单体架构迁移，新架构用一系列松耦合的服务取代了单体，最终实现了平均11.6s就能将代码的更待部署到生产环境中。 现在我们也在也在尝试用微服务架构去拆分单体的应用，那如何实践？这篇文章和大家讨论一下，微服务架构设计的一些想法和最佳实践。 单体架构 我们通过一个例子来简单的说明一下单体架构，假设我们要构建一个电商应用，它能够支持接收客户的订单、验证库存、查看客户账户的信用额度，而后进行发货。该程序有多个组件组成StoreFrontUI负责实现用户界面，而其它后端服务则分别负责检查信用额度、维护库存和发送订单。 该应用通过Apache/Nginx实现请求的转发和负载均衡，将单体打包为WAR文件，为了提高扩展性和可用性，你可以在负载均衡器之后运行此应用的多个实例。 这个单体应用的好处： 易于开发 — 当前开发工具与IDE的设计目标即在于支持单体应用的开发。 易于部署 — 你只需要将该WAR（或者目录层级）部署在合适的运行环境中即可。 易于扩展 — 你可以在负载均衡器后面运行多个应用副本实现扩展。 然而，一旦应用变大、团队扩大，这种方案的弊端将会变得愈发明显： 单体应用巨大的代码库可能会让人望而生畏，特别是对那些团队新成员来说。应用难以被理解和进行修改，进而导致开发速度减慢。由于没有清晰的模块边界，模块化会逐渐消失。另外，由于难以正确把握代码变化，导致代码质量逐步下滑，陷入恶性循环。 过载的IDE——代码库越大，IDE速度越慢，开发者的生产效率越低。 过载的Web容器——应用越大，Web容器启动时间越长。容器启动耗费时间，极大影响到开发者的生产效率。对部署工作也有负面影响。...<br>
+      <!-- <p><h4 id="概述">概述</h4> <p>我们最开始一般采用单体架构去创建应用程序，单体架构中，初始化、配置、监控和管理各种复杂的功能捆绑在一起，当业务快速发发展时，这就给开发和运维带来了挑战。由于单体架构开发上运维上的问题，软件行业开始尝试新的东西，亚马逊早在2002年左右开始逐步从单体架构迁移，新架构用一系列松耦合的服务取代了单体，最终实现了平均11.6s就能将代码的更待部署到生产环境中。</p> <p>现在我们也在也在尝试用微服务架构去拆分单体的应用，那如何实践？这篇文章和大家讨论一下，微服务架构设计的一些想法和最佳实践。</p> <h4 id="单体架构">单体架构</h4> <p>我们通过一个例子来简单的说明一下单体架构，假设我们要构建一个电商应用，它能够支持接收客户的订单、验证库存、查看客户账户的信用额度，而后进行发货。该程序有多个组件组成StoreFrontUI负责实现用户界面，而其它后端服务则分别负责检查信用额度、维护库存和发送订单。</p> <p>该应用通过Apache/Nginx实现请求的转发和负载均衡，将单体打包为WAR文件，为了提高扩展性和可用性，你可以在负载均衡器之后运行此应用的多个实例。</p> <p><img src="/assets/images/pictures/2019-10-26-microservices_arc/DecomposingApplications.011.jpg" alt="典型的单体架构" style="zoom:80%" /></p> <p><strong>这个单体应用的好处：</strong></p> <ul> <li>易于开发 — 当前开发工具与IDE的设计目标即在于支持单体应用的开发。</li> <li>易于部署 —...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+
+<section class="panel panel-default portlet-item">
+  <header class="panel-heading"><strong>Article List</strong></header>
+  <section class="panel-body">
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/distribute-job/" class="h5 text-success">分布式任务调度系统实现原理与选型</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/kafka/" class="h5 text-success">kafka内部结构以及如何保证高可靠</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/cyclomatic_complexity/" class="h5 text-success">如何降低代码的圈复杂度</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/hot_account/" class="h5 text-success">如何识别与解决热点账户</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/microservices_arc/" class="h5 text-success">微服务架构设计模式</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+
+    
+  </section>
+</section>
+<div class="text-center m-t-lg m-b-lg">
+  <ul class="pagination pagination-md">
+    
+      <li><a href="#"><i class="fa fa-chevron-left"></i></a></li>
+    
+
+    
+      
+        <li class="active"><a href="/page1">1</a></li>
+      
+    
+      
+        <li><a href="/page2">2</a></li>
+      
+    
+
+    
+      <li><a href="/page2"><i class="fa fa-chevron-right"></i></a></li>
+    
+  </ul>
+</div>
+
+
+          </div>
+        </div>
+        <div class="col-sm-3">
+  <h5 class="font-semibold">About me</h5>
+<div class="line line-dashed"></div>
+<div class="m-b-lg">
+    <span class="thumb-sm avatar m-r-sm m-t-xs">
+        <img src="/assets/images/avatar.png" class="img-circle">
+    </span>
+    <p class="clear text-sm">
+        Name：Madden Zhang<br/>
+        Business Domain: E-commerce, FinTech<br/>
+        Technical Domain: Distributed Systems, Microservices<br/>
+        Location: Beijing<br/>
+        Email：<a href=mailto:zhangxuegang@gmail.com>zhangxuegang@gmail.com</a><br/>
+    </p>
+    <span class="thumb-sm m-r-sm m-t-xs">
+        <img src="/assets/images/subscription.png">
+    </span>
+</div>
+  <h5 class="font-semibold">Categories</h5>
+<div class="line line-dashed"></div>
+<ul class="list-unstyled">
+  
+    
+    
+    
+      <li>
+        <a href="/categories/mysql/" class="dk">
+          <span class="badge pull-right">3</span>
+          Mysql
+        </a>
+      </li>
+      <li class="line"></li>
+    
+  
+    
+    
+    
+      <li>
+        <a href="/categories/tool/" class="dk">
+          <span class="badge pull-right">6</span>
+          Tool
+        </a>
+      </li>
+      <li class="line"></li>
+    
+  
+</ul>
+
+  <div class="tags m-b-lg">
+  
+    <a href="/tags/#index" class="label bg-success">Index</a>
+  
+    <a href="/tags/#mysql" class="label bg-success">Mysql</a>
+  
+    <a href="/tags/#database" class="label bg-success">Database</a>
+  
+    <a href="/tags/#deadlock" class="label bg-success">Deadlock</a>
+  
+    <a href="/tags/#archtecture" class="label bg-success">Archtecture</a>
+  
+    <a href="/tags/#refactoring" class="label bg-success">Refactoring</a>
+  
+    <a href="/tags/#tool" class="label bg-success">Tool</a>
+  
+</div>
+
+  <h5 class="font-semibold">Recent Posts</h5>
+<div class="line line-dashed"></div>
+<div>
+  
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/tool/distribute-job/" class="font-semibold">分布式任务调度系统实现原理与选型</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/tool/kafka/" class="font-semibold">kafka内部结构以及如何保证高可靠</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/tool/cyclomatic_complexity/" class="font-semibold">如何降低代码的圈复杂度</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/tool/hot_account/" class="font-semibold">如何识别与解决热点账户</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/tool/microservices_arc/" class="font-semibold">微服务架构设计模式</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-dropbox fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/mysql/mysql_index/" class="font-semibold">Mysql 索引原理与Mysql优化</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
+</div>
+
+  <h5 class="font-semibold">Archives</h5>
+<div class="line line-dashed"></div>
+<ul class="list-unstyled">
+  
+    
+    
+    
+      <li><a href="/archives#072018" class="dk">July 2018</a></li>
+      <li class="line"></li>
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+    
+    
+    
+  
+</ul>
+
+
+
+</div>
+
+      </div>
+    </div>
+  </section>
+  </body>
+</html>

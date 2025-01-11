@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>maddenmandel - Mysql 死锁问题分析</title>
+    <meta name="description" content="">
+
+    <link rel="stylesheet" href="/assets/css/bootstrap.css">
+    <link rel="stylesheet" href="/assets/css/animate.css">
+    <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/css/font.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/highlight.css">
+    <link rel="stylesheet" href="/assets/css/custom.css">
+
+    <link rel="canonical" href="http://localhost:4000/mysql/mysql_lock_in_action/">
+</head>
+
+  <head>
+    <!-- style sheet of Vssue -->
+    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+  </head>
+  <body>
+  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+  <div class="container">
+    <div class="navbar-header">
+      <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
+      <button class="btn btn-link visible-xs" type="button" data-toggle="collapse" data-target=".navbar-collapse">
+        <i class="fa fa-bars"></i>
+      </button>
+    </div>
+    <div class="collapse navbar-collapse">
+      <ul class="nav navbar-nav navbar-right">
+        <li><a href="/">Home</a></li>
+        <li><a href="/tags/">Tags</a></li>
+        <li><a href="/feed.xml">RSS</a></li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+  <section id="content">
+    <div class="container m-t-lg m-b-lg">
+      <div class="row">
+        <div class="col-sm-12">
+          <div class="blog-post">
+          <!-- Begin Post -->
+            <div class="post-item">
+              <div class="caption wrapper-lg">
+                <h4 class="post-title">Mysql 死锁问题分析</h4>
+                <div class="progress progress-xxs m-t-sm">
+                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                </div>
+                <div class="post-sum">
+                  <h4 id="背景介绍">背景介绍</h4>
+<p>我们在进行互联网应用开发的时候，高并发场景下，很容易遇到死锁的问题，我们从jdbc抛出的死锁异常中，很难看出死锁发生的具体原因，jdbc只是给了一个死锁异常，
+但是并没有抛出导致死锁的原因，这是因为mysql本身，发生死锁的时候就没有抛出更多的错误信息。MySQL/InnoDB的加锁分析，对应用开发来说也是比较复杂的，因为
+锁这一块的复杂性，很多关于数据库锁的文章，并没有实际的验证，而是似是而非猜测性的，有一些误导。这里是对一个insert和update同一索引数据导致的死锁案例的
+分析过程，主要是描述一个解决问题的思路，供大家参考。</p>
+
+<h4 id="发现问题">发现问题</h4>
+<p>X同学在生产上发现了如下的死锁异常，想让我一起排查下，登陆服务器后，看到了类似如下的异常信息：</p>
+
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="err">在分库</span><span class="p">:[</span> <span class="n">worker_10</span><span class="o">~~&gt;</span><span class="n">jdbc</span><span class="p">:</span><span class="n">mysql</span><span class="p">:</span><span class="o">//</span><span class="n">hostname</span><span class="p">:</span><span class="mi">3306</span><span class="o">/</span><span class="n">dbname</span><span class="o">?</span><span class="k">user</span><span class="o">=</span><span class="k">user</span> <span class="p">],</span>
+<span class="err">执行</span><span class="k">SQL</span><span class="p">:[</span> <span class="k">UPDATE</span> <span class="n">tablename</span> <span class="k">SET</span> <span class="n">col1</span> <span class="o">=</span> <span class="n">col1</span> <span class="o">+</span> <span class="mi">20</span><span class="p">,</span>  <span class="n">modified_date</span> <span class="o">=</span> <span class="n">NOW</span><span class="p">()</span> <span class="k">WHERE</span> <span class="n">order_id</span> <span class="o">=</span> <span class="s1">'xxx'</span> <span class="p">],</span> 
+<span class="err">发生异常</span><span class="p">:</span><span class="n">Deadlock</span> <span class="k">found</span> <span class="k">when</span> <span class="n">trying</span> <span class="k">to</span> <span class="k">get</span> <span class="k">lock</span><span class="p">;</span> <span class="n">try</span> <span class="n">restarting</span> <span class="n">transaction</span><span class="p">;</span> 
+</code></pre></div></div>
+
+<h4 id="排查问题">排查问题</h4>
+
+<p>我们从日志上看，看不出死锁发生的具体原因，我翻看了发生异常堆栈的代码，类似于我之前做的一个订单台账的死锁问题，因为上次排查的时候，就参阅了不少资料，
+有些资料也有一定的误导性，借此我把这次死锁原因复现一下，通过实际的操作来分析一下死锁的原因，并分析一下，如何解决此场景的死锁问题。</p>
+
+<p>我们可以通过show engine innodb status，来查看死锁的日志，看看是否可以看出，是执行哪几个SQL引起的，以下是我找dba拿出的日志，我做了一下脱敏。</p>
+
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="mi">2019</span><span class="o">-</span><span class="mi">07</span><span class="o">-</span><span class="mi">18</span> <span class="mi">10</span><span class="p">:</span><span class="mi">03</span><span class="p">:</span><span class="mi">03</span> <span class="mi">7</span><span class="n">f16ff826700</span>
+<span class="o">***</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="n">TRANSACTION</span><span class="p">:</span>
+<span class="n">TRANSACTION</span> <span class="mi">46497170213</span><span class="p">,</span> <span class="n">ACTIVE</span> <span class="mi">0</span> <span class="n">sec</span> <span class="n">starting</span> <span class="k">index</span> <span class="k">read</span>
+<span class="n">mysql</span> <span class="n">tables</span> <span class="k">in</span> <span class="n">use</span> <span class="mi">1</span><span class="p">,</span> <span class="n">locked</span> <span class="mi">1</span>
+<span class="k">LOCK</span> <span class="n">WAIT</span> <span class="mi">3</span> <span class="k">lock</span> <span class="n">struct</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="n">heap</span> <span class="k">size</span> <span class="mi">1184</span><span class="p">,</span> <span class="mi">2</span> <span class="k">row</span> <span class="k">lock</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+<span class="n">MySQL</span> <span class="n">thread</span> <span class="n">id</span> <span class="mi">118471353</span><span class="p">,</span> <span class="n">OS</span> <span class="n">thread</span> <span class="n">handle</span> <span class="mi">0</span><span class="n">x7f1c2fe77700</span><span class="p">,</span> <span class="n">query</span> <span class="n">id</span> <span class="mi">146140919609</span> <span class="mi">10</span><span class="p">.</span><span class="mi">240</span><span class="p">.</span><span class="mi">24</span><span class="p">.</span><span class="mi">25</span> <span class="n">dbname</span> <span class="n">updating</span>
+<span class="k">UPDATE</span> <span class="n">tablename</span> <span class="k">SET</span> <span class="n">col1</span> <span class="o">=</span> <span class="n">col1</span> <span class="o">+</span> <span class="mi">20</span><span class="p">,</span>  <span class="n">modified_date</span> <span class="o">=</span> <span class="n">NOW</span><span class="p">()</span> <span class="k">WHERE</span> <span class="n">order_id</span> <span class="o">=</span> <span class="s1">'xxx'</span> 
+<span class="o">***</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="n">WAITING</span> <span class="k">FOR</span> <span class="n">THIS</span> <span class="k">LOCK</span> <span class="k">TO</span> <span class="n">BE</span> <span class="k">GRANTED</span><span class="p">:</span>
+<span class="n">RECORD</span> <span class="n">LOCKS</span> <span class="k">space</span> <span class="n">id</span> <span class="mi">2632</span> <span class="n">page</span> <span class="k">no</span> <span class="mi">5065</span> <span class="n">n</span> <span class="n">bits</span> <span class="mi">440</span> <span class="k">index</span> <span class="nv">`uniq_table_name_col1`</span> <span class="k">of</span> <span class="k">table</span> <span class="nv">`tablename`</span> <span class="n">trx</span> <span class="n">id</span> <span class="mi">46497170213</span> <span class="n">lock_mode</span> <span class="n">X</span> <span class="n">locks</span> <span class="n">rec</span> <span class="n">but</span> <span class="k">not</span> <span class="n">gap</span> <span class="n">waiting</span>
+<span class="n">Record</span> <span class="k">lock</span><span class="p">,</span> <span class="n">heap</span> <span class="k">no</span> <span class="mi">374</span>
+<span class="o">***</span> <span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="n">TRANSACTION</span><span class="p">:</span>
+<span class="n">TRANSACTION</span> <span class="mi">46497170214</span><span class="p">,</span> <span class="n">ACTIVE</span> <span class="mi">0</span> <span class="n">sec</span> <span class="n">starting</span> <span class="k">index</span> <span class="k">read</span><span class="p">,</span> <span class="n">thread</span> <span class="n">declared</span> <span class="n">inside</span> <span class="n">InnoDB</span> <span class="mi">5000</span>
+<span class="n">mysql</span> <span class="n">tables</span> <span class="k">in</span> <span class="n">use</span> <span class="mi">1</span><span class="p">,</span> <span class="n">locked</span> <span class="mi">1</span>
+<span class="mi">3</span> <span class="k">lock</span> <span class="n">struct</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="n">heap</span> <span class="k">size</span> <span class="mi">1184</span><span class="p">,</span> <span class="mi">2</span> <span class="k">row</span> <span class="k">lock</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+<span class="n">MySQL</span> <span class="n">thread</span> <span class="n">id</span> <span class="mi">118465375</span><span class="p">,</span> <span class="n">OS</span> <span class="n">thread</span> <span class="n">handle</span> <span class="mi">0</span><span class="n">x7f16ff826700</span><span class="p">,</span> <span class="n">query</span> <span class="n">id</span> <span class="mi">146140919617</span> <span class="mi">172</span><span class="p">.</span><span class="mi">25</span><span class="p">.</span><span class="mi">213</span><span class="p">.</span><span class="mi">222</span> <span class="n">dbname</span> <span class="n">updating</span>
+<span class="k">UPDATE</span> <span class="n">tablename</span> <span class="k">SET</span> <span class="n">col1</span> <span class="o">=</span> <span class="n">col1</span> <span class="o">+</span> <span class="mi">30</span><span class="p">,</span>  <span class="n">modified_date</span> <span class="o">=</span> <span class="n">NOW</span><span class="p">()</span> <span class="k">WHERE</span> <span class="n">order_id</span> <span class="o">=</span> <span class="s1">'xxx'</span> 
+<span class="o">***</span> <span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="n">HOLDS</span> <span class="n">THE</span> <span class="k">LOCK</span><span class="p">(</span><span class="n">S</span><span class="p">):</span>
+    <span class="n">RECORD</span> <span class="n">LOCKS</span> <span class="k">space</span> <span class="n">id</span> <span class="mi">2632</span> <span class="n">page</span> <span class="k">no</span> <span class="mi">5065</span> <span class="n">n</span> <span class="n">bits</span> <span class="mi">440</span> <span class="k">index</span> <span class="nv">`uniq_table_name_col1`</span> <span class="k">of</span> <span class="k">table</span> <span class="nv">`tablename`</span> <span class="n">trx</span> <span class="n">id</span> <span class="mi">46497170214</span> <span class="k">lock</span> <span class="k">mode</span> <span class="n">S</span> <span class="n">rec</span> <span class="n">but</span> <span class="k">not</span> <span class="n">gap</span>
+<span class="n">Record</span> <span class="k">lock</span><span class="p">,</span> <span class="n">heap</span> <span class="k">no</span> <span class="mi">374</span>
+<span class="o">***</span> <span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="n">WAITING</span> <span class="k">FOR</span> <span class="n">THIS</span> <span class="k">LOCK</span> <span class="k">TO</span> <span class="n">BE</span> <span class="k">GRANTED</span><span class="p">:</span>
+<span class="n">RECORD</span> <span class="n">LOCKS</span> <span class="k">space</span> <span class="n">id</span> <span class="mi">2632</span> <span class="n">page</span> <span class="k">no</span> <span class="mi">5065</span> <span class="n">n</span> <span class="n">bits</span> <span class="mi">440</span> <span class="k">index</span> <span class="nv">`uniq_table_name_col1`</span> <span class="k">of</span> <span class="k">table</span> <span class="nv">`tablename`</span> <span class="n">trx</span> <span class="n">id</span> <span class="mi">46497170214</span> <span class="n">lock_mode</span> <span class="n">X</span> <span class="n">locks</span> <span class="n">rec</span> <span class="n">but</span> <span class="k">not</span> <span class="n">gap</span> <span class="n">waiting</span>
+<span class="n">Record</span> <span class="k">lock</span><span class="p">,</span> <span class="n">heap</span> <span class="k">no</span> <span class="mi">374</span>
+<span class="o">***</span> <span class="n">WE</span> <span class="n">ROLL</span> <span class="n">BACK</span> <span class="n">TRANSACTION</span> <span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h4 id="解读死锁日志">解读死锁日志</h4>
+<p><img src="/assets/images/pictures/2019-07-26-mysql_local_in_action/20190725100725364_422396275.png?style=centerme" alt="死锁日志解读" /></p>
+
+<p>我们先来看读一下这个死锁日志，主要关注上边红色的内容，读完之后，是不是发现死锁的日志不全？TRANSACTION2中持有的S锁（lock mode S），这里我们看不出是谁添加的。
+这也是死锁分析难的一个原因， 这个时候我们需要回到业务上,了解整个事务的逻辑。虽然我们没有获取到解决死锁的全部信息，不过它仍然给了我们很有用的信息，
+我们定位到了是哪两条SQL引起的死锁，并在事务2中看到了一个S锁，这个地方可以看一下执行SQL的程序，尤其关注一下S锁是怎么添加的。经过排查，我发现程序中有行代码是这么写的：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span> <span class="o">{</span>
+    <span class="n">xxxService</span><span class="o">.</span><span class="na">insert</span><span class="o">(</span><span class="n">xx</span><span class="o">);</span>
+<span class="o">}</span> <span class="k">catch</span><span class="o">(</span><span class="nc">DuplicateKeyException</span> <span class="n">duplicateKeyException</span><span class="o">)</span> <span class="o">{</span>
+    <span class="n">xxxService</span><span class="o">.</span><span class="na">updateXxByIdx</span><span class="o">(</span><span class="n">xx</span><span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<h4 id="已有的知识">已有的知识</h4>
+
+<p>又是insert问题导致的死锁？</p>
+
+<p>我们先看一下mysql官方给出的insert导致死锁的案例，然后继续分析一下，这个地方可能导致的死锁问题，之前解决过类似的场景，可以参考这个 <a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-locks-set.html">insert死锁</a>。</p>
+
+<blockquote>
+  <p>If a duplicate-key error occurs, a shared lock on the duplicate index record is set. This use of a shared lock can result in deadlock should there be multiple sessions trying to insert the same row if another session already has an exclusive lock. Suppose that an InnoDB table t1 has the following structure:</p>
+</blockquote>
+
+<p>大概解释一下这句话，当发生duplicate-key错误的时候，会对索引记录加S锁。当有一个session持有了X锁，然后又有多个session同时去插入相同行的时候可能会导致死锁， 我们来看一下这个案例：</p>
+
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">-- table structure</span>
+<span class="k">CREATE</span> <span class="k">TABLE</span> <span class="n">t1</span> <span class="p">(</span><span class="n">i</span> <span class="nb">INT</span><span class="p">,</span> <span class="k">PRIMARY</span> <span class="k">KEY</span> <span class="p">(</span><span class="n">i</span><span class="p">))</span> <span class="n">ENGINE</span> <span class="o">=</span> <span class="n">InnoDB</span><span class="p">;</span>
+
+<span class="c1">-- Session 1:</span>
+<span class="k">START</span> <span class="n">TRANSACTION</span><span class="p">;</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">t1</span> <span class="k">VALUES</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+
+<span class="c1">-- Session 2:</span>
+<span class="k">START</span> <span class="n">TRANSACTION</span><span class="p">;</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">t1</span> <span class="k">VALUES</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+
+<span class="c1">-- Session 3:</span>
+<span class="k">START</span> <span class="n">TRANSACTION</span><span class="p">;</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">t1</span> <span class="k">VALUES</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+
+<span class="c1">-- Session 1:</span>
+<span class="k">ROLLBACK</span><span class="p">;</span>
+</code></pre></div></div>
+
+<blockquote>
+  <p>The first operation by session 1 acquires an exclusive lock for the row. The operations by sessions 2 and 3 both result in a duplicate-key error and they both request a shared lock for the row. When session 1 rolls back, it releases its exclusive lock on the row and the queued shared lock requests for sessions 2 and 3 are granted. At this point, sessions 2 and 3 deadlock: Neither can acquire an exclusive lock for the row because of the shared lock held by the other.</p>
+</blockquote>
+
+<p>解释一下这句话： session1拿到了X锁，session2和session3发生duplicate-key错的时候，同时去请求S锁。当session1回滚，它释放X锁，此时session2和session3同时获得S锁，并同时去请求X锁。引起了死锁。我们看一下这个持有和竞争的关系：</p>
+
+<p><img src="/assets/images/pictures/2019-07-26-mysql_local_in_action/20190725123235910_1658579667.png?style=centerme" alt="" /></p>
+
+<p>这个地方是核心要理解锁的一个互斥和共存的关系，我们看一下这个关系：</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>S</th>
+      <th>X</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>S</td>
+      <td>不冲突</td>
+      <td>冲突</td>
+    </tr>
+    <tr>
+      <td>X</td>
+      <td>冲突</td>
+      <td>冲突</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>因为X和S锁是互斥的，session2想要X锁，必须等待session3的S锁释放， session3想要获得X锁也要session2释放S锁，这个时候构成了环路等待，引起了死锁。</p>
+
+<h4 id="回到我们案例">回到我们案例</h4>
+
+<p>很明显我们的案例，不是单纯的insert引起的，不过思考一下，这个地方存在同样的问题，session2和session3如果发生duplicate-key错的时候，同时去请求S锁。然后去执行update这条数据的时候，update需要
+加X锁，当他们请求X锁的时候，需要对方释放S锁，这个时候构成了环路等待，引起了死锁。我们来模拟一下这个场景, 这个地方，我们假设数据已经存在了，上边语句的表名，我脱敏了主要是因为是线上信息，接下来，
+我就直接创建一份测试数据去模拟了：</p>
+
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">-- table structure</span>
+<span class="k">CREATE</span> <span class="k">TABLE</span> <span class="nv">`tablename`</span> <span class="p">(</span>
+  <span class="nv">`id`</span> <span class="nb">bigint</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span> <span class="k">NOT</span> <span class="k">NULL</span> <span class="n">AUTO_INCREMENT</span> <span class="k">COMMENT</span> <span class="s1">'主键id'</span><span class="p">,</span>
+  <span class="nv">`col1`</span> <span class="nb">varchar</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span><span class="k">DEFAULT</span> <span class="k">NULL</span> <span class="k">COMMENT</span> <span class="s1">'订单号'</span><span class="p">,</span>
+  <span class="nv">`out_money`</span> <span class="nb">bigint</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span> <span class="k">DEFAULT</span> <span class="s1">'0'</span> <span class="k">COMMENT</span> <span class="s1">'转出金额'</span><span class="p">,</span>
+  <span class="nv">`in_money`</span> <span class="nb">bigint</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span> <span class="k">DEFAULT</span> <span class="s1">'0'</span> <span class="k">COMMENT</span> <span class="s1">'转入金额'</span><span class="p">,</span>
+  <span class="nv">`created_date`</span> <span class="nb">datetime</span> <span class="k">NOT</span> <span class="k">NULL</span> <span class="k">COMMENT</span> <span class="s1">'创建时间'</span><span class="p">,</span>
+  <span class="nv">`modified_date`</span> <span class="nb">timestamp</span> <span class="k">NOT</span> <span class="k">NULL</span> <span class="k">DEFAULT</span> <span class="k">CURRENT_TIMESTAMP</span> <span class="k">ON</span> <span class="k">UPDATE</span> <span class="k">CURRENT_TIMESTAMP</span> <span class="k">COMMENT</span> <span class="s1">'最后修改时间'</span><span class="p">,</span>
+  <span class="nv">`mer_date`</span> <span class="nb">varchar</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span> <span class="k">COLLATE</span> <span class="n">utf8_bin</span> <span class="k">DEFAULT</span> <span class="k">NULL</span> <span class="k">COMMENT</span> <span class="s1">'时间切分键'</span><span class="p">,</span>
+  <span class="nv">`in_settle_money`</span> <span class="nb">bigint</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span> <span class="k">DEFAULT</span> <span class="s1">'0'</span> <span class="k">COMMENT</span> <span class="s1">'结算转入金额'</span><span class="p">,</span>
+  <span class="nv">`out_settle_money`</span> <span class="nb">bigint</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span> <span class="k">DEFAULT</span> <span class="s1">'0'</span> <span class="k">COMMENT</span> <span class="s1">'结算转出金额'</span><span class="p">,</span>
+  <span class="k">PRIMARY</span> <span class="k">KEY</span> <span class="p">(</span><span class="nv">`id`</span><span class="p">),</span>
+  <span class="k">UNIQUE</span> <span class="k">KEY</span> <span class="nv">`uniq_order_account_3413`</span> <span class="p">(</span><span class="nv">`order_id`</span><span class="p">)</span>
+<span class="p">)</span> <span class="n">ENGINE</span><span class="o">=</span><span class="n">InnoDB</span> <span class="n">AUTO_INCREMENT</span><span class="o">=</span><span class="mi">220016</span> <span class="k">DEFAULT</span> <span class="n">CHARSET</span><span class="o">=</span><span class="n">utf8</span> <span class="k">COLLATE</span><span class="o">=</span><span class="n">utf8_bin</span> <span class="k">COMMENT</span><span class="o">=</span><span class="s1">'订单金额表'</span><span class="p">;</span>
+
+<span class="c1">-- transaction 1</span>
+<span class="k">begin</span><span class="p">;</span>
+<span class="k">insert</span>  <span class="k">into</span> <span class="n">order_account_info_3413</span> <span class="k">values</span><span class="p">(</span><span class="mi">200014</span><span class="p">,</span><span class="mi">2000</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="n">now</span><span class="p">(),</span><span class="n">now</span><span class="p">(),</span><span class="mi">20180101</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">);</span>
+
+<span class="c1">-- transaction 2</span>
+<span class="k">begin</span><span class="p">;</span>
+<span class="k">insert</span>  <span class="k">into</span> <span class="n">order_account_info_3413</span> <span class="k">values</span><span class="p">(</span><span class="mi">200014</span><span class="p">,</span><span class="mi">2000</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="n">now</span><span class="p">(),</span><span class="n">now</span><span class="p">(),</span><span class="mi">20180101</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">);</span>
+
+<span class="c1">-- transaction 1</span>
+<span class="k">update</span> <span class="n">order_account_info_3413</span> <span class="k">set</span> <span class="n">in_money</span><span class="o">=</span> <span class="n">in_money</span> <span class="o">+</span> <span class="mi">1</span> <span class="k">where</span> <span class="n">order_id</span> <span class="o">=</span> <span class="mi">2000</span><span class="p">;</span>
+
+<span class="c1">-- transaction 2</span>
+<span class="k">update</span> <span class="n">order_account_info_3413</span> <span class="k">set</span> <span class="n">in_money</span><span class="o">=</span> <span class="n">in_money</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">where</span> <span class="n">order_id</span> <span class="o">=</span> <span class="mi">2000</span><span class="p">;</span>
+
+<span class="c1">-- transaction 2</span>
+<span class="n">ERROR</span> <span class="mi">1213</span> <span class="p">(</span><span class="mi">40001</span><span class="p">):</span> <span class="n">Deadlock</span> <span class="k">found</span> <span class="k">when</span> <span class="n">trying</span> <span class="k">to</span> <span class="k">get</span> <span class="k">lock</span><span class="p">;</span> <span class="n">try</span> <span class="n">restarting</span> <span class="n">transaction</span><span class="o">~~~~</span>
+</code></pre></div></div>
+<h4 id="问题真的只是这样么">问题真的只是这样么？</h4>
+
+<p>回来再看一下这个代码：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">if</span> <span class="o">(</span><span class="n">xxxService</span><span class="o">.</span><span class="na">getXxByIdx</span><span class="o">(</span><span class="no">XX</span><span class="o">)</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">try</span> <span class="o">{</span>
+        <span class="n">xxxService</span><span class="o">.</span><span class="na">insert</span><span class="o">(</span><span class="n">xx</span><span class="o">);</span>
+    <span class="o">}</span> <span class="k">catch</span><span class="o">(</span><span class="nc">DuplicateKeyException</span> <span class="n">duplicateKeyException</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">xxxService</span><span class="o">.</span><span class="na">updateXxByIdx</span><span class="o">(</span><span class="n">xx</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+        <span class="n">xxxService</span><span class="o">.</span><span class="na">updateXxByIdx</span><span class="o">(</span><span class="n">xx</span><span class="o">);</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p>假设程序的执行状态是这样呢？ 会不会存在问题？ 线程1经过1和2到达3，线程2经过1到达2.</p>
+
+<p><img src="/assets/images/pictures/2019-07-26-mysql_local_in_action/20190725145431560_396427721.png?style=centerme" alt="" /></p>
+
+<p>我们模拟一下这个场景：</p>
+
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">-- transaction 1</span>
+<span class="k">begin</span><span class="p">;</span>
+<span class="k">insert</span>  <span class="k">into</span> <span class="n">order_account_info_3413</span> <span class="k">values</span><span class="p">(</span><span class="mi">200014</span><span class="p">,</span><span class="mi">2000</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="n">now</span><span class="p">(),</span><span class="n">now</span><span class="p">(),</span><span class="mi">20180101</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">);</span>
+
+<span class="c1">-- transaction 2</span>
+<span class="k">begin</span><span class="p">;</span>
+<span class="k">update</span> <span class="n">order_account_info_3413</span> <span class="k">set</span> <span class="n">in_money</span><span class="o">=</span> <span class="n">in_money</span> <span class="o">+</span> <span class="mi">1</span> <span class="k">where</span> <span class="n">order_id</span> <span class="o">=</span> <span class="mi">2000</span><span class="p">;</span>
+
+<span class="c1">-- transaction 1</span>
+<span class="k">update</span> <span class="n">order_account_info_3413</span> <span class="k">set</span> <span class="n">in_money</span><span class="o">=</span> <span class="n">in_money</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">where</span> <span class="n">order_id</span> <span class="o">=</span> <span class="mi">2000</span><span class="p">;</span>
+
+
+<span class="c1">-- transaction 2</span>
+<span class="n">ERROR</span> <span class="mi">1213</span> <span class="p">(</span><span class="mi">40001</span><span class="p">):</span> <span class="n">Deadlock</span> <span class="k">found</span> <span class="k">when</span> <span class="n">trying</span> <span class="k">to</span> <span class="k">get</span> <span class="k">lock</span><span class="p">;</span> <span class="n">try</span> <span class="n">restarting</span> <span class="n">transaction</span><span class="o">~~~~</span>
+</code></pre></div></div>
+
+<h2 id="why">why？</h2>
+
+<p>晕了，分析一下这个过程吧</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>time</th>
+      <th>session 1</th>
+      <th>session2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>begin;</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>insert  into order_account_info_3413 values(200014,2000,0,0,now(),now(),20180101,0,0);唯一索引冲突，对唯一索引加S锁</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td> </td>
+      <td>begin;</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td> </td>
+      <td>update order_account_info_3413 set in_money= in_money + 1 where order_id = 2000;  加X锁，等待session1的S锁</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>update order_account_info_3413 set in_money= in_money - 1 where order_id = 2000;这个地方应该做了死锁检查，认为死锁，然后把session2回滚了</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td> </td>
+      <td>ERROR 1213 (40001): Deadlock found when trying to get lock; try restarting transaction~~~~</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>这个地方不太明白，死锁检查的时候，为什么判定是死锁了，猜一下吧，因为session2先进入了等待X锁的队列，但是他需要session1的S锁，session1需要拿X锁，但是因为session2线进入了等待X锁的队列，所以它需要等待session2 拿到X锁后释放S锁。好像可以说通！</p>
+
+<h4 id="验证一下">验证一下</h4>
+
+<p>如果还是不太理解这个地方可以debug一下mysql的执行，核心就是死锁检测的地方，他是怎样认为存在死锁，并对session2进行回滚的，我们可以下载mysql的源码，进行编译和调试，核心找到Innodb中检测与处理死锁的代码入口：
+我们发现，死锁检测函数是storage/innobase/lock/lock0lock.c的lock_deadlock_occurs函数，这个函数调用了lock_deadlock_recursive函数迭代地检查死锁：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span>
+<span class="n">ulint</span>
+<span class="nf">lock_deadlock_recursive</span><span class="p">(</span>
+<span class="cm">/*====================*/</span>
+	<span class="n">trx_t</span><span class="o">*</span>	<span class="n">start</span><span class="p">,</span>		<span class="cm">/*!&lt; in: recursion starting point */</span>
+	<span class="n">trx_t</span><span class="o">*</span>	<span class="n">trx</span><span class="p">,</span>		<span class="cm">/*!&lt; in: a transaction waiting for a lock */</span>
+	<span class="n">lock_t</span><span class="o">*</span>	<span class="n">wait_lock</span><span class="p">,</span>	<span class="cm">/*!&lt; in:  lock that is waiting to be granted */</span>
+	<span class="n">ulint</span><span class="o">*</span>	<span class="n">cost</span><span class="p">,</span>		<span class="cm">/*!&lt; in/out: number of calculation steps thus
+				far: if this exceeds LOCK_MAX_N_STEPS_...
+				we return LOCK_EXCEED_MAX_DEPTH */</span>
+	<span class="n">ulint</span>	<span class="n">depth</span><span class="p">);</span>		<span class="cm">/*!&lt; in: recursion depth: if this exceeds
+				LOCK_MAX_DEPTH_IN_DEADLOCK_CHECK, we
+				return LOCK_EXCEED_MAX_DEPTH */</span>
+
+</code></pre></div></div>
+<p>lock_deadlock_recursive是迭代的主函数。 start为初始事务, wait_lock为待判断锁， cost和depth为累积的消耗和迭代深度。</p>
+
+<p>里边有一个非常重要的死锁检测逻辑，当事务尝试获取（请求）加一个锁，并且需要等待时，innodb会开始进行死锁检测。</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>	<span class="k">if</span> <span class="p">(</span><span class="n">lock_has_to_wait</span><span class="p">(</span><span class="n">wait_lock</span><span class="p">,</span> <span class="n">lock</span><span class="p">))</span> <span class="p">{</span>
+			<span class="n">ibool</span>	<span class="n">too_far</span>
+				<span class="o">=</span> <span class="n">depth</span> <span class="o">&gt;</span> <span class="n">LOCK_MAX_DEPTH_IN_DEADLOCK_CHECK</span>
+				<span class="o">||</span> <span class="o">*</span><span class="n">cost</span> <span class="o">&gt;</span> <span class="n">LOCK_MAX_N_STEPS_IN_DEADLOCK_CHECK</span><span class="p">;</span>
+
+			<span class="n">lock_trx</span> <span class="o">=</span> <span class="n">lock</span><span class="o">-&gt;</span><span class="n">trx</span><span class="p">;</span>
+
+			<span class="k">if</span> <span class="p">(</span><span class="n">lock_trx</span> <span class="o">==</span> <span class="n">start</span><span class="p">)</span> <span class="p">{</span>
+
+				<span class="cm">/* We came back to the recursion starting
+				point: a deadlock detected; or we have
+				searched the waits-for graph too long */</span>
+			<span class="p">}</span>
+		<span class="p">}</span>
+
+</code></pre></div></div>
+<p>我们发现当函数第二次递归的时候，lock_trx 等于 start，成环死锁产生。要不再精进一下？我们分析一下，这两次递归都干了什么？这个问题我和<a href="https://mp.weixin.qq.com/s/9GhchWWsUqNvN6-bWL-olA">挖坑的张师傅</a>
+一起探讨过，他把debug的思路写了下来，是个不错的参考。</p>
+
+<h4 id="怎么解决">怎么解决？</h4>
+
+<ul>
+  <li>第一种方案：<code class="language-plaintext highlighter-rouge">insert  into order_account_info_3413 values(200014,2000,0,0,now(),now(),20180101,0,0) on duplicate key update in_money= in_money + 1;</code>？</li>
+  <li>第二种方案：分布式锁?</li>
+  <li>第三种方案：insert 发生duplicate-key不执行更新了直接抛异常重新走一下？</li>
+</ul>
+
+<p>第一种解决方案，<a href="https://juejin.im/user/57e4a4e80e3dd9005809b6fb">咖啡拿铁</a>在文中说依然存在死锁问题，我在RC和RR的隔离级别下没有重现这个异常。暂且认为这种方式是可用的，
+这种方式的优点是mysql就提供了这种保护机制，不用通过程序去保护，缺点就是把这个责任交给了mysql，一般来说，数据库资源更宝贵一些，而且这种写法也有人反馈有一定的问题，尤其是存在多个唯一索引的时候。
+所以在使用的时候，需要一定的压测，或者对mysql更系统的学习。</p>
+
+<p>第二种方案，分布式锁是一个比较简单的方案，把并行化修改为串行化进入，效率也不会太差，一般在互联网应用中，其实还是比较常见的方式，缺点就是引入了新的组件，这个地方还有一个缺
+点就是，如果这是一个对外的接口，这个地方还需要考虑接口的幂等以及可用率，这里超出了本文的讨论范围。</p>
+
+<p>第三种方案，依赖于重试策略，这种方式简单，但是如果是对外接口的话，依然要考虑接口可用率的问题。</p>
+
+<p>技术上没有绝对的最佳实践，最佳实践都是基于业务场景去考虑，这里可以基于自己的业务场景去选择和考虑更好的解决方案。</p>
+
+<h4 id="总结">总结</h4>
+<p>以上的实践都在RC事务隔离级别下完成，互联网的解决方案多是碎片化的，作为我们要学会甄别信息的准确性，并进行一定的尝试和实验。尽量对官方的文档进行系统的学习，网络上的文章作为
+理解的辅助参考。然后慢慢形成自己的知识体系。</p>
+
+<p>本文中还参考了如下内容：</p>
+
+<p><a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-deadlocks.html">mysql官方手册</a></p>
+
+<p><a href="http://hedengcheng.com/?p=771">何登成的技术博客</a></p>
+
+                </div>
+
+                <div id="vssue"></div>
+                <!-- Introduce Vue first -->
+
+                <!-- vue runtime build (runtime only)  -->
+                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
+                <!-- OR: vue full build (runtime + compiler)  -->
+                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
+
+                <!-- Introduce Vssue after Vue -->
+
+                <!-- Vssue Github build -->
+                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
+                <!-- Use Vssue as a Vue component -->
+
+                <!-- use render function for vue runtime build -->
+                <script>
+                  new Vue({
+                    el: '#vssue',
+
+                    render: h => h('Vssue', {
+                      props: {
+                        // here set the title of issue of current page
+                        title: 'Vssue Dev',
+
+                        // here set the options for your OAuth App
+                        options: {
+                          owner: 'maddenmandel',
+                          repo: 'maddenmandel.github.io',
+                          clientId: '264a95d2f3b06c2aed0a',
+                          clientSecret: '55a241c0c1220ea55de6fcc2fdc77dfd4db3378d', // only required for some of the platforms
+                        },
+                      }
+                    })
+                  })
+                </script>
+
+                <section class="panel panel-default">
+                  <div class="panel-body">
+                    <a href="https://github.com/maddenmandel" class="thumb pull-right m-l">
+                      <img src="/assets/images/avatar.png" class="img-circle">
+                    </a>
+                    <div class="clear">
+                      <p>
+                        <small class="block text-muted">
+                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
+
+                          <a href="https://github.com/maddenmandel" class="text-info">@XueGang Zhang <i class="icon-twitter"></i></a>
+
+                          <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+
+                          
+                        </small>
+                      </p>
+                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          <!-- End Post -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </body>
+</html>

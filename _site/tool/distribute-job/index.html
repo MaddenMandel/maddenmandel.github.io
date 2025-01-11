@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>maddenmandel - 分布式任务调度系统实现原理与选型</title>
+    <meta name="description" content="">
+
+    <link rel="stylesheet" href="/assets/css/bootstrap.css">
+    <link rel="stylesheet" href="/assets/css/animate.css">
+    <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/css/font.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/highlight.css">
+    <link rel="stylesheet" href="/assets/css/custom.css">
+
+    <link rel="canonical" href="http://localhost:4000/tool/distribute-job/">
+</head>
+
+  <head>
+    <!-- style sheet of Vssue -->
+    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+  </head>
+  <body>
+  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+  <div class="container">
+    <div class="navbar-header">
+      <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
+      <button class="btn btn-link visible-xs" type="button" data-toggle="collapse" data-target=".navbar-collapse">
+        <i class="fa fa-bars"></i>
+      </button>
+    </div>
+    <div class="collapse navbar-collapse">
+      <ul class="nav navbar-nav navbar-right">
+        <li><a href="/">Home</a></li>
+        <li><a href="/tags/">Tags</a></li>
+        <li><a href="/feed.xml">RSS</a></li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+  <section id="content">
+    <div class="container m-t-lg m-b-lg">
+      <div class="row">
+        <div class="col-sm-12">
+          <div class="blog-post">
+          <!-- Begin Post -->
+            <div class="post-item">
+              <div class="caption wrapper-lg">
+                <h4 class="post-title">分布式任务调度系统实现原理与选型</h4>
+                <div class="progress progress-xxs m-t-sm">
+                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                </div>
+                <div class="post-sum">
+                  <h3 id="背景介绍">背景介绍</h3>
+
+<p>针对分布式跑批任务进行调研，选择合适于当前场景下的任务调度系统，对其进行改造以应用于生产环境。任务调度最直接简单的方式就是利用Lunix自带的任务Crontab，但是在任务执行监控、日志查看等任务管理上都存在很多的问题。现在的开源系统分为两类：以 Quartz 为代表的定时类调度系统和以 DAG 为核心的工作流调度系统。首先看看定时类调度系统，它们的设计核心是定时运行、数据分片和弹性扩容，但是对依赖关系支持的不太友好，更适用于后端业务开发，其代表为 XXL-JOB 、Elastic-Job 。而数据团队最常见的操作是的 ETL （抽取、转换和加载数据），更强调的是任务的依赖关系，所以关注点便是以 DAG 为核心的工作流调度系统了。</p>
+
+<h3 id="任务调度系统核心功能">任务调度系统核心功能</h3>
+
+<ul>
+  <li>任务分片：对于一个大型任务，需要支持分片并行执行。</li>
+  <li>高可用: 调度系统自身必须保证高可用。</li>
+  <li>任务编排：任务与任务之间可以进行次序的编排。</li>
+  <li>失效转移: 当前节点宕机时，该节点的任务可以转移到其它节点执行。</li>
+  <li>动态分片: 一个任务可以切分成多片，在多个节点执行。</li>
+</ul>
+
+<h3 id="主流分布式调度技术比较">主流分布式调度技术比较</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>功能列表</th>
+      <th>elastic-job</th>
+      <th>XXL-JOB</th>
+      <th>easyJob</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>任务分片</td>
+      <td>√</td>
+      <td>√</td>
+      <td>√</td>
+    </tr>
+    <tr>
+      <td>高可用</td>
+      <td>基于zookeeper</td>
+      <td>基于数据库</td>
+      <td>基于数据库</td>
+    </tr>
+    <tr>
+      <td>任务编排</td>
+      <td>×</td>
+      <td>通过子任务依赖来实现</td>
+      <td>完善的DAG功能</td>
+    </tr>
+    <tr>
+      <td>失效转移</td>
+      <td>开启了失效转以后，机器宕机其它机器会立马争抢任务执行</td>
+      <td>执行失败后，记录失败状态，通过后台的守护线程，重新执行失败的任务</td>
+      <td>没有失败转移的功能，任务执行失败，可以配置告警，人工介入</td>
+    </tr>
+    <tr>
+      <td>动态分片</td>
+      <td>比较完善的分片策略，包括随机、Hash等，提供了扩展点，可以自己实现</td>
+      <td>任务分给执行器可以选择多种算法，动态分片是通过分片广播，客户端代码在实现jobHandler时可以获取分片参数，分片处理自己的数据</td>
+      <td>通过子任务分片，被随机的客户端取走</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="如何实现失效转移">如何实现失效转移</h3>
+
+<h4 id="elasticjob-如何实现失效转移">elasticJob 如何实现失效转移</h4>
+
+<h5 id="ha">HA</h5>
+
+<p>当某一个任务实例节点宕机（离开与zookeeper的连接），会触发elastic-job主节点的重新分片逻辑。elastic-job启动任务节点以后生成的zookeeper中的instance节点是一个临时节点EPHEMERAL。为什么要用EPHEMERAL节点，就是为了能在任务实例出现问题与zookeeper断开以后，能触发zookeeper的节点移除的事件，从而重新调整分区或者运行节点。既然是EPHEMERAL节点，就可以在zookeeper中配置sessionTimeoutMs参数。在使用spring的elastic-job配置中在如下地方配置：</p>
+
+<p><img src="/assets/images/pictures/2020-03-18-distribute-job/01.png?style=centerme" alt="关系图" /></p>
+
+<p>如果在sessionTimeoutMs的时间段之内触发任务，则异常分片的任务会丢失。举个例子：假如sessionTimeoutMs被设置成1分钟，而本身的任务是30秒执行一次，有三个任务实例在三台机器各自执行分片1,2,3。当分片3所在的机器出现问题，和zk断开了，那么zk节点失效至少要到1分钟以后。期间30秒执行一次的任务分片3，至少会少执行一次。1分钟过后，zk节点失效，触发ListenServersChangedJobListener类的dataChanged方法，在这里方法中判断instance节点变化，然后通过方法shardingService.setReshardingFlag设置重新分片标志位，下次执行任务的时候，leader节点重新分配分片，分片3就会转移到其他好的机器上。</p>
+
+<h5 id="失效转移">失效转移</h5>
+
+<p>elastic-job的任务配置有个failover，如果开启设置为true的时候，会启动真正的失效转移，elastic-job的任务有两个配置：failover（默认值为false）和monitorExecution（默认值是true）。只有对monitorExecution为true的情况下才可以开启失效转移。
+<img src="/assets/images/pictures/2020-03-18-distribute-job/02.png?style=centerme" alt="关系图" /></p>
+
+<p>所谓失效转移，就是在执行任务的过程中遇见异常的情况，这个分片任务可以在其他节点再次执行。这个和上面的HA不同，对于HA，上面如果任务终止，那么不会在其他任务实例上再次重新执行。</p>
+
+<p>Job的失效转移监听来源于FailoverListenerManager中JobCrashedJobListener的dataChanged方法。FailoverListenerManager监听的是zk的instance节点删除事件。如果任务配置了failover等于true，其中某个instance与zk失去联系或被删除，并且失效的节点又不是本身，就会触发失效转移逻辑。</p>
+
+<p>首先，在某个任务实例失效时，elastic-job会在leader节点下面创建failover节点以及items节点。items节点下会有失效任务实例的原本应该做的分片号。比如，失效的任务实例原来负责分片1和2。那么items节点下就会有名字叫1的子节点，就代表分片1需要转移到其他节点上去运行。如下图：
+<img src="/assets/images/pictures/2020-03-18-distribute-job/03.png?style=centerme" alt="关系图" /></p>
+
+<p>然后，由于每个存活着的任务实例都会收到zk节点丢失的事件，哪个分片失效也已经在leader节点的failover子节点下。所以这些或者的任务实例就会争抢这个分片任务来执行。为了保证不重复执行，elastic-job使用了curator的LeaderLatch类来进行选举执行。在获得执行权后，就会在sharding节点的分片上添加failover节点，并写上任务实例，表示这个故障任务迁移到某一个任务实例上去完成。如下图中的sharding节点上的分片1：</p>
+
+<p><img src="/assets/images/pictures/2020-03-18-distribute-job/04.png?style=centerme" alt="关系图" /></p>
+
+<p>执行完成后，会把相应的节点和数据删除，避免下一次重复执行。</p>
+
+<h4 id="xxl-job-如何实现失效转移">xxl-JOB 如何实现失效转移</h4>
+
+<p>每个任务执行的后，记录执行状态，当服务器宕机时，当前务执行失败的时候，记录失败日志，然后由后台的一个守护线程，搜索执行失败的任务进行重新触发。当触发的任务的时候，会进行多种路由策略的选择，如果客户端选择了故障转移策略。则管理端会将之前保存的addressList与服务端进行一个心跳的检测，检测机器是否有crash的，如果找到存活的就执行调度。如果失联就记录日志。等待下次重试。</p>
+
+<h4 id="easyjob-如何实现失效转移">easyJob 如何实现失效转移</h4>
+
+<p>easyJob本身没有失效转移的功能，需要监控任务的执行状态，如果执行失败的话发送邮件或者短信告警，通过人来进行处理。</p>
+
+<h4 id="如何实现动态分片">如何实现动态分片</h4>
+
+<h4 id="elasticjob如何实现动态分片">elasticjob如何实现动态分片</h4>
+
+<p>主节点会查询配置的分片策略，然后根据分片数shardingTotalCount以及机器实例数jobInstances，针对根据配置的分片策略计算分片结果，得到分片结果之后持久化到zookeeper。
+主要就是在zookeeper的子节/namespace/jobName/sharding/shardingItem/instance下，保存该分片持有的服务器。</p>
+
+<p>在支持多种分片策略，可自定义分片策略，默认包含三种分片策略： 基于平均分配算法的分片策略、 作业名的哈希值奇偶数决定IP升降序算法的分片策略、根据作业名的哈希值对Job实例列表进行轮转的分片策略，支持自定义分片策略，分片是通过zookeeper来实现。，如下三种情况都会触发主节点上的分片算法执行：</p>
+
+<p>a、新的Job实例加入集群</p>
+
+<p>b、现有的Job实例下线（如果下线的是leader节点，那么先选举然后触发分片算法的执行）</p>
+
+<p>c、主节点选举</p>
+
+<h4 id="xxl-job如何实现动态分片">xxl-job如何实现动态分片</h4>
+<p><img src="/assets/images/pictures/2020-03-18-distribute-job/06.png?style=centerme" alt="关系图" /></p>
+
+<blockquote>
+  <p>执行器集群部署时，任务路由策略选择”分片广播”情况下，一次任务调度将会广播触发对应集群中所有执行器执行一次任务，同时传递分片参数；可根据分片参数开发分片任务；</p>
+</blockquote>
+
+<h4 id="easyjob如何实现动态分片">easyJob如何实现动态分片</h4>
+
+<h4 id="如何实现弹性扩容缩容">如何实现弹性扩容缩容</h4>
+
+<h4 id="elastic-job如何实现弹性扩容缩容">elastic-job如何实现弹性扩容缩容</h4>
+<p>通过zk实现各服务的注册、控制及协调，以下是弹性分布的实现：</p>
+
+<p>第一台服务器上线触发主服务器选举。主服务器一旦下线，则重新触发选举，选举过程中阻塞，只有主服务器选举完成，才会执行其他任务。</p>
+
+<p>某作业服务器上线时会自动将服务器信息注册到注册中心，下线时会自动更新服务器状态。</p>
+
+<p>主节点选举，服务器上下线，分片总数变更均更新重新分片标记。</p>
+
+<p>定时任务触发时，如需重新分片，则通过主服务器分片，分片过程中阻塞，分片结束后才可执行任务。如分片过程中主服务器下线，则先选举主服务器，再分片。</p>
+
+<p>通过上一项说明可知，为了维持作业运行时的稳定性，运行过程中只会标记分片状态，不会重新分片。分片仅可能发生在下次任务触发前。</p>
+
+<p>每次分片都会按服务器IP排序，保证分片结果不会产生较大波动。</p>
+
+<p>实现失效转移功能，在某台服务器执行完毕后主动抓取未分配的分片，并且在某台服务器下线后主动寻找可用的服务器执行任务。</p>
+
+<h4 id="xxl-job如何实现弹性扩容缩容">xxl-job如何实现弹性扩容缩容</h4>
+
+<p>使用Quartz基于数据库的分布式功能，服务器超出一定数量会给数据库造成一定的压力，一旦有新执行器机器上线或者下线，下次调度时将会重新分配任务； 具体如下：</p>
+
+<p><img src="/assets/images/pictures/2020-03-18-distribute-job/05.png?style=centerme" alt="关系图" />
+执行器的弹性扩充，主要是得益于它的注册中心。注册中心其实本质上是一个 API 服务，有三个主要的 API，第一个是心跳注册，假如当前是1、2 两台集群，这时候上线一台 3，3 会在启动的时候立刻向调度中心进行自我的初测。在调度中心找到，比如这个业务线是餐饮，餐饮下面本来有两个执行器，在 30 秒之后调度中心刷新它注册机器列表的时候，就会把餐饮 的执行器给刷出来。然后在下次心跳之后的调度请求，就会将 3 纳入它的路由机器的备选项。</p>
+
+<p>第二个是摘除，摘除还以 3 为例，在机器宕机或者销毁的时候，它会主动把自己摘除掉，让调度中心说我过期了，然后把自己摘除掉；调度中心如果发现这个执行器在三次心跳之内都没有有效的注册，会把它主动过期摘除掉。这就是两种进行机器摘除的方式。</p>
+
+<h4 id="easy-job如何实现弹性扩容缩容">easy-job如何实现弹性扩容缩容</h4>
+<p>参考[easy-job负载均衡]</p>
+
+<h4 id="负载均衡">负载均衡</h4>
+
+<p>这里说的负载均衡指的是任务执行的负载均衡，elastic的负载均衡算法实现可以选择框架本身的，框架也提供了扩展点可以自己实现，xxljob是产生任务后，由调度中心对任务进行委派给执行器，这个时候，这个时候委派给执行器越平均，我们认为负载越均衡。easyjob是生成任务后，由客户端去取，比较平均，但是缺乏一些应用场景下可选的算法。</p>
+
+<h4 id="elasticjob负载均衡">elasticjob负载均衡</h4>
+
+<h4 id="xxl-job负载均衡">xxl-job负载均衡</h4>
+
+<p>xxl调度中心的负载均衡，可以通过ngnix来实现，官方给出的建议部署方式如下。
+<img src="/assets/images/pictures/2020-03-18-distribute-job/07.png?style=centerme" alt="关系图" /></p>
+
+<p>架构的主要思路：</p>
+
+<p>1，配置Nginx负载均衡，负责分发请求。</p>
+
+<p>2，连接相同的数据库，保持数据库中的数据一致性，就避免了产生Job的重复执行问题</p>
+
+<p>xxl-job的负载均衡是通过调度中心分发任务到具体的执行器中执行。在执行器集群环境下，调度中心会根据任务配置的路由策略选择具体的执行器执行任务，涉及的路由策略有：第一个、最后一个、轮询、随机、一致性哈希、最不经常使用、最近最久未使用等。</p>
+
+<h4 id="easy-job负载均衡">easy-job负载均衡</h4>
+<p>有限的负载均衡支持。分布式任务中，可以创建子任务，子任务被某一客户端随机的取走。好比一种随机的算法。</p>
+
+<h4 id="dag功能">DAG功能</h4>
+
+<h4 id="elasticjobdag功能">elasticjobDAG功能</h4>
+<p>不支持DAG</p>
+
+<h4 id="xxl-jobdag功能">xxl-jobDAG功能</h4>
+<p>支持简单的子任务和任务依赖，不支持完整的DAG任务</p>
+
+<h4 id="easy-jobdag功能">easy-jobDAG功能</h4>
+<p>对DAG的支持比较完善</p>
+
+<p>文章参考：</p>
+
+<p><a href="https://zhuanlan.zhihu.com/p/100526494">闲聊调度系统 Apache Airflow</a></p>
+
+<p><a href="https://blog.csdn.net/qq924862077/article/details/83036626">elasticjob源码分析</a></p>
+
+<p><a href="https://www.cnblogs.com/haoxinyue/p/7068115.html">elasticjo失效转移</a></p>
+
+<p><a href="https://blog.csdn.net/royal_lr/article/details/100113760">xxl-job如何进行稳定性保障</a></p>
+
+<p><a href="https://juejin.im/post/5d8d85696fb9a04dda7087c6">xxl-job细节</a></p>
+
+<p><a href="https://www.upyun.com/opentalk/303.html">XXL-JOB ：分布式任务调度平台</a></p>
+
+<p><a href="https://www.cnblogs.com/rainswinds/p/10930495.html">分布式定时任务调度系统技术解决方案</a></p>
+
+<p><a href="https://www.jianshu.com/p/a7e291f3049b">elastic-job-lite源码分析之选举及分片</a></p>
+
+<p><a href="https://zhuanlan.zhihu.com/p/72008180">数据平台之任务调度系统</a></p>
+
+
+                </div>
+
+                <div id="vssue"></div>
+                <!-- Introduce Vue first -->
+
+                <!-- vue runtime build (runtime only)  -->
+                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
+                <!-- OR: vue full build (runtime + compiler)  -->
+                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
+
+                <!-- Introduce Vssue after Vue -->
+
+                <!-- Vssue Github build -->
+                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
+                <!-- Use Vssue as a Vue component -->
+
+                <!-- use render function for vue runtime build -->
+                <script>
+                  new Vue({
+                    el: '#vssue',
+
+                    render: h => h('Vssue', {
+                      props: {
+                        // here set the title of issue of current page
+                        title: 'Vssue Dev',
+
+                        // here set the options for your OAuth App
+                        options: {
+                          owner: 'maddenmandel',
+                          repo: 'maddenmandel.github.io',
+                          clientId: '264a95d2f3b06c2aed0a',
+                          clientSecret: '55a241c0c1220ea55de6fcc2fdc77dfd4db3378d', // only required for some of the platforms
+                        },
+                      }
+                    })
+                  })
+                </script>
+
+                <section class="panel panel-default">
+                  <div class="panel-body">
+                    <a href="https://github.com/maddenmandel" class="thumb pull-right m-l">
+                      <img src="/assets/images/avatar.png" class="img-circle">
+                    </a>
+                    <div class="clear">
+                      <p>
+                        <small class="block text-muted">
+                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
+
+                          <a href="https://github.com/maddenmandel" class="text-info">@XueGang Zhang <i class="icon-twitter"></i></a>
+
+                          <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+
+                          
+                        </small>
+                      </p>
+                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          <!-- End Post -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </body>
+</html>

@@ -1,0 +1,2135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>maddenmandel</title>
+    <description></description>
+    <link>http://localhost:4000/</link>
+    <atom:link href="http://localhost:4000/feed.xml" rel="self" type="application/rss+xml" />
+    <pubDate>Sat, 11 Jan 2025 11:55:23 +0000</pubDate>
+    <lastBuildDate>Sat, 11 Jan 2025 11:55:23 +0000</lastBuildDate>
+    <generator>Jekyll v3.10.0</generator>
+    
+      <item>
+        <title>分布式任务调度系统实现原理与选型</title>
+        <description>&lt;h3 id=&quot;背景介绍&quot;&gt;背景介绍&lt;/h3&gt;
+
+&lt;p&gt;针对分布式跑批任务进行调研，选择合适于当前场景下的任务调度系统，对其进行改造以应用于生产环境。任务调度最直接简单的方式就是利用Lunix自带的任务Crontab，但是在任务执行监控、日志查看等任务管理上都存在很多的问题。现在的开源系统分为两类：以 Quartz 为代表的定时类调度系统和以 DAG 为核心的工作流调度系统。首先看看定时类调度系统，它们的设计核心是定时运行、数据分片和弹性扩容，但是对依赖关系支持的不太友好，更适用于后端业务开发，其代表为 XXL-JOB 、Elastic-Job 。而数据团队最常见的操作是的 ETL （抽取、转换和加载数据），更强调的是任务的依赖关系，所以关注点便是以 DAG 为核心的工作流调度系统了。&lt;/p&gt;
+
+&lt;h3 id=&quot;任务调度系统核心功能&quot;&gt;任务调度系统核心功能&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;任务分片：对于一个大型任务，需要支持分片并行执行。&lt;/li&gt;
+  &lt;li&gt;高可用: 调度系统自身必须保证高可用。&lt;/li&gt;
+  &lt;li&gt;任务编排：任务与任务之间可以进行次序的编排。&lt;/li&gt;
+  &lt;li&gt;失效转移: 当前节点宕机时，该节点的任务可以转移到其它节点执行。&lt;/li&gt;
+  &lt;li&gt;动态分片: 一个任务可以切分成多片，在多个节点执行。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;主流分布式调度技术比较&quot;&gt;主流分布式调度技术比较&lt;/h3&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;功能列表&lt;/th&gt;
+      &lt;th&gt;elastic-job&lt;/th&gt;
+      &lt;th&gt;XXL-JOB&lt;/th&gt;
+      &lt;th&gt;easyJob&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;任务分片&lt;/td&gt;
+      &lt;td&gt;√&lt;/td&gt;
+      &lt;td&gt;√&lt;/td&gt;
+      &lt;td&gt;√&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;高可用&lt;/td&gt;
+      &lt;td&gt;基于zookeeper&lt;/td&gt;
+      &lt;td&gt;基于数据库&lt;/td&gt;
+      &lt;td&gt;基于数据库&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;任务编排&lt;/td&gt;
+      &lt;td&gt;×&lt;/td&gt;
+      &lt;td&gt;通过子任务依赖来实现&lt;/td&gt;
+      &lt;td&gt;完善的DAG功能&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;失效转移&lt;/td&gt;
+      &lt;td&gt;开启了失效转以后，机器宕机其它机器会立马争抢任务执行&lt;/td&gt;
+      &lt;td&gt;执行失败后，记录失败状态，通过后台的守护线程，重新执行失败的任务&lt;/td&gt;
+      &lt;td&gt;没有失败转移的功能，任务执行失败，可以配置告警，人工介入&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;动态分片&lt;/td&gt;
+      &lt;td&gt;比较完善的分片策略，包括随机、Hash等，提供了扩展点，可以自己实现&lt;/td&gt;
+      &lt;td&gt;任务分给执行器可以选择多种算法，动态分片是通过分片广播，客户端代码在实现jobHandler时可以获取分片参数，分片处理自己的数据&lt;/td&gt;
+      &lt;td&gt;通过子任务分片，被随机的客户端取走&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h3 id=&quot;如何实现失效转移&quot;&gt;如何实现失效转移&lt;/h3&gt;
+
+&lt;h4 id=&quot;elasticjob-如何实现失效转移&quot;&gt;elasticJob 如何实现失效转移&lt;/h4&gt;
+
+&lt;h5 id=&quot;ha&quot;&gt;HA&lt;/h5&gt;
+
+&lt;p&gt;当某一个任务实例节点宕机（离开与zookeeper的连接），会触发elastic-job主节点的重新分片逻辑。elastic-job启动任务节点以后生成的zookeeper中的instance节点是一个临时节点EPHEMERAL。为什么要用EPHEMERAL节点，就是为了能在任务实例出现问题与zookeeper断开以后，能触发zookeeper的节点移除的事件，从而重新调整分区或者运行节点。既然是EPHEMERAL节点，就可以在zookeeper中配置sessionTimeoutMs参数。在使用spring的elastic-job配置中在如下地方配置：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/01.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如果在sessionTimeoutMs的时间段之内触发任务，则异常分片的任务会丢失。举个例子：假如sessionTimeoutMs被设置成1分钟，而本身的任务是30秒执行一次，有三个任务实例在三台机器各自执行分片1,2,3。当分片3所在的机器出现问题，和zk断开了，那么zk节点失效至少要到1分钟以后。期间30秒执行一次的任务分片3，至少会少执行一次。1分钟过后，zk节点失效，触发ListenServersChangedJobListener类的dataChanged方法，在这里方法中判断instance节点变化，然后通过方法shardingService.setReshardingFlag设置重新分片标志位，下次执行任务的时候，leader节点重新分配分片，分片3就会转移到其他好的机器上。&lt;/p&gt;
+
+&lt;h5 id=&quot;失效转移&quot;&gt;失效转移&lt;/h5&gt;
+
+&lt;p&gt;elastic-job的任务配置有个failover，如果开启设置为true的时候，会启动真正的失效转移，elastic-job的任务有两个配置：failover（默认值为false）和monitorExecution（默认值是true）。只有对monitorExecution为true的情况下才可以开启失效转移。
+&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/02.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;所谓失效转移，就是在执行任务的过程中遇见异常的情况，这个分片任务可以在其他节点再次执行。这个和上面的HA不同，对于HA，上面如果任务终止，那么不会在其他任务实例上再次重新执行。&lt;/p&gt;
+
+&lt;p&gt;Job的失效转移监听来源于FailoverListenerManager中JobCrashedJobListener的dataChanged方法。FailoverListenerManager监听的是zk的instance节点删除事件。如果任务配置了failover等于true，其中某个instance与zk失去联系或被删除，并且失效的节点又不是本身，就会触发失效转移逻辑。&lt;/p&gt;
+
+&lt;p&gt;首先，在某个任务实例失效时，elastic-job会在leader节点下面创建failover节点以及items节点。items节点下会有失效任务实例的原本应该做的分片号。比如，失效的任务实例原来负责分片1和2。那么items节点下就会有名字叫1的子节点，就代表分片1需要转移到其他节点上去运行。如下图：
+&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/03.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;然后，由于每个存活着的任务实例都会收到zk节点丢失的事件，哪个分片失效也已经在leader节点的failover子节点下。所以这些或者的任务实例就会争抢这个分片任务来执行。为了保证不重复执行，elastic-job使用了curator的LeaderLatch类来进行选举执行。在获得执行权后，就会在sharding节点的分片上添加failover节点，并写上任务实例，表示这个故障任务迁移到某一个任务实例上去完成。如下图中的sharding节点上的分片1：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/04.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;执行完成后，会把相应的节点和数据删除，避免下一次重复执行。&lt;/p&gt;
+
+&lt;h4 id=&quot;xxl-job-如何实现失效转移&quot;&gt;xxl-JOB 如何实现失效转移&lt;/h4&gt;
+
+&lt;p&gt;每个任务执行的后，记录执行状态，当服务器宕机时，当前务执行失败的时候，记录失败日志，然后由后台的一个守护线程，搜索执行失败的任务进行重新触发。当触发的任务的时候，会进行多种路由策略的选择，如果客户端选择了故障转移策略。则管理端会将之前保存的addressList与服务端进行一个心跳的检测，检测机器是否有crash的，如果找到存活的就执行调度。如果失联就记录日志。等待下次重试。&lt;/p&gt;
+
+&lt;h4 id=&quot;easyjob-如何实现失效转移&quot;&gt;easyJob 如何实现失效转移&lt;/h4&gt;
+
+&lt;p&gt;easyJob本身没有失效转移的功能，需要监控任务的执行状态，如果执行失败的话发送邮件或者短信告警，通过人来进行处理。&lt;/p&gt;
+
+&lt;h4 id=&quot;如何实现动态分片&quot;&gt;如何实现动态分片&lt;/h4&gt;
+
+&lt;h4 id=&quot;elasticjob如何实现动态分片&quot;&gt;elasticjob如何实现动态分片&lt;/h4&gt;
+
+&lt;p&gt;主节点会查询配置的分片策略，然后根据分片数shardingTotalCount以及机器实例数jobInstances，针对根据配置的分片策略计算分片结果，得到分片结果之后持久化到zookeeper。
+主要就是在zookeeper的子节/namespace/jobName/sharding/shardingItem/instance下，保存该分片持有的服务器。&lt;/p&gt;
+
+&lt;p&gt;在支持多种分片策略，可自定义分片策略，默认包含三种分片策略： 基于平均分配算法的分片策略、 作业名的哈希值奇偶数决定IP升降序算法的分片策略、根据作业名的哈希值对Job实例列表进行轮转的分片策略，支持自定义分片策略，分片是通过zookeeper来实现。，如下三种情况都会触发主节点上的分片算法执行：&lt;/p&gt;
+
+&lt;p&gt;a、新的Job实例加入集群&lt;/p&gt;
+
+&lt;p&gt;b、现有的Job实例下线（如果下线的是leader节点，那么先选举然后触发分片算法的执行）&lt;/p&gt;
+
+&lt;p&gt;c、主节点选举&lt;/p&gt;
+
+&lt;h4 id=&quot;xxl-job如何实现动态分片&quot;&gt;xxl-job如何实现动态分片&lt;/h4&gt;
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/06.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;执行器集群部署时，任务路由策略选择”分片广播”情况下，一次任务调度将会广播触发对应集群中所有执行器执行一次任务，同时传递分片参数；可根据分片参数开发分片任务；&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h4 id=&quot;easyjob如何实现动态分片&quot;&gt;easyJob如何实现动态分片&lt;/h4&gt;
+
+&lt;h4 id=&quot;如何实现弹性扩容缩容&quot;&gt;如何实现弹性扩容缩容&lt;/h4&gt;
+
+&lt;h4 id=&quot;elastic-job如何实现弹性扩容缩容&quot;&gt;elastic-job如何实现弹性扩容缩容&lt;/h4&gt;
+&lt;p&gt;通过zk实现各服务的注册、控制及协调，以下是弹性分布的实现：&lt;/p&gt;
+
+&lt;p&gt;第一台服务器上线触发主服务器选举。主服务器一旦下线，则重新触发选举，选举过程中阻塞，只有主服务器选举完成，才会执行其他任务。&lt;/p&gt;
+
+&lt;p&gt;某作业服务器上线时会自动将服务器信息注册到注册中心，下线时会自动更新服务器状态。&lt;/p&gt;
+
+&lt;p&gt;主节点选举，服务器上下线，分片总数变更均更新重新分片标记。&lt;/p&gt;
+
+&lt;p&gt;定时任务触发时，如需重新分片，则通过主服务器分片，分片过程中阻塞，分片结束后才可执行任务。如分片过程中主服务器下线，则先选举主服务器，再分片。&lt;/p&gt;
+
+&lt;p&gt;通过上一项说明可知，为了维持作业运行时的稳定性，运行过程中只会标记分片状态，不会重新分片。分片仅可能发生在下次任务触发前。&lt;/p&gt;
+
+&lt;p&gt;每次分片都会按服务器IP排序，保证分片结果不会产生较大波动。&lt;/p&gt;
+
+&lt;p&gt;实现失效转移功能，在某台服务器执行完毕后主动抓取未分配的分片，并且在某台服务器下线后主动寻找可用的服务器执行任务。&lt;/p&gt;
+
+&lt;h4 id=&quot;xxl-job如何实现弹性扩容缩容&quot;&gt;xxl-job如何实现弹性扩容缩容&lt;/h4&gt;
+
+&lt;p&gt;使用Quartz基于数据库的分布式功能，服务器超出一定数量会给数据库造成一定的压力，一旦有新执行器机器上线或者下线，下次调度时将会重新分配任务； 具体如下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/05.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;
+执行器的弹性扩充，主要是得益于它的注册中心。注册中心其实本质上是一个 API 服务，有三个主要的 API，第一个是心跳注册，假如当前是1、2 两台集群，这时候上线一台 3，3 会在启动的时候立刻向调度中心进行自我的初测。在调度中心找到，比如这个业务线是餐饮，餐饮下面本来有两个执行器，在 30 秒之后调度中心刷新它注册机器列表的时候，就会把餐饮 的执行器给刷出来。然后在下次心跳之后的调度请求，就会将 3 纳入它的路由机器的备选项。&lt;/p&gt;
+
+&lt;p&gt;第二个是摘除，摘除还以 3 为例，在机器宕机或者销毁的时候，它会主动把自己摘除掉，让调度中心说我过期了，然后把自己摘除掉；调度中心如果发现这个执行器在三次心跳之内都没有有效的注册，会把它主动过期摘除掉。这就是两种进行机器摘除的方式。&lt;/p&gt;
+
+&lt;h4 id=&quot;easy-job如何实现弹性扩容缩容&quot;&gt;easy-job如何实现弹性扩容缩容&lt;/h4&gt;
+&lt;p&gt;参考[easy-job负载均衡]&lt;/p&gt;
+
+&lt;h4 id=&quot;负载均衡&quot;&gt;负载均衡&lt;/h4&gt;
+
+&lt;p&gt;这里说的负载均衡指的是任务执行的负载均衡，elastic的负载均衡算法实现可以选择框架本身的，框架也提供了扩展点可以自己实现，xxljob是产生任务后，由调度中心对任务进行委派给执行器，这个时候，这个时候委派给执行器越平均，我们认为负载越均衡。easyjob是生成任务后，由客户端去取，比较平均，但是缺乏一些应用场景下可选的算法。&lt;/p&gt;
+
+&lt;h4 id=&quot;elasticjob负载均衡&quot;&gt;elasticjob负载均衡&lt;/h4&gt;
+
+&lt;h4 id=&quot;xxl-job负载均衡&quot;&gt;xxl-job负载均衡&lt;/h4&gt;
+
+&lt;p&gt;xxl调度中心的负载均衡，可以通过ngnix来实现，官方给出的建议部署方式如下。
+&lt;img src=&quot;/assets/images/pictures/2020-03-18-distribute-job/07.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;架构的主要思路：&lt;/p&gt;
+
+&lt;p&gt;1，配置Nginx负载均衡，负责分发请求。&lt;/p&gt;
+
+&lt;p&gt;2，连接相同的数据库，保持数据库中的数据一致性，就避免了产生Job的重复执行问题&lt;/p&gt;
+
+&lt;p&gt;xxl-job的负载均衡是通过调度中心分发任务到具体的执行器中执行。在执行器集群环境下，调度中心会根据任务配置的路由策略选择具体的执行器执行任务，涉及的路由策略有：第一个、最后一个、轮询、随机、一致性哈希、最不经常使用、最近最久未使用等。&lt;/p&gt;
+
+&lt;h4 id=&quot;easy-job负载均衡&quot;&gt;easy-job负载均衡&lt;/h4&gt;
+&lt;p&gt;有限的负载均衡支持。分布式任务中，可以创建子任务，子任务被某一客户端随机的取走。好比一种随机的算法。&lt;/p&gt;
+
+&lt;h4 id=&quot;dag功能&quot;&gt;DAG功能&lt;/h4&gt;
+
+&lt;h4 id=&quot;elasticjobdag功能&quot;&gt;elasticjobDAG功能&lt;/h4&gt;
+&lt;p&gt;不支持DAG&lt;/p&gt;
+
+&lt;h4 id=&quot;xxl-jobdag功能&quot;&gt;xxl-jobDAG功能&lt;/h4&gt;
+&lt;p&gt;支持简单的子任务和任务依赖，不支持完整的DAG任务&lt;/p&gt;
+
+&lt;h4 id=&quot;easy-jobdag功能&quot;&gt;easy-jobDAG功能&lt;/h4&gt;
+&lt;p&gt;对DAG的支持比较完善&lt;/p&gt;
+
+&lt;p&gt;文章参考：&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://zhuanlan.zhihu.com/p/100526494&quot;&gt;闲聊调度系统 Apache Airflow&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://blog.csdn.net/qq924862077/article/details/83036626&quot;&gt;elasticjob源码分析&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://www.cnblogs.com/haoxinyue/p/7068115.html&quot;&gt;elasticjo失效转移&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://blog.csdn.net/royal_lr/article/details/100113760&quot;&gt;xxl-job如何进行稳定性保障&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://juejin.im/post/5d8d85696fb9a04dda7087c6&quot;&gt;xxl-job细节&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://www.upyun.com/opentalk/303.html&quot;&gt;XXL-JOB ：分布式任务调度平台&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://www.cnblogs.com/rainswinds/p/10930495.html&quot;&gt;分布式定时任务调度系统技术解决方案&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://www.jianshu.com/p/a7e291f3049b&quot;&gt;elastic-job-lite源码分析之选举及分片&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://zhuanlan.zhihu.com/p/72008180&quot;&gt;数据平台之任务调度系统&lt;/a&gt;&lt;/p&gt;
+
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/tool/distribute-job/</link>
+        <guid isPermaLink="true">http://localhost:4000/tool/distribute-job/</guid>
+        
+        <category>archtecture</category>
+        
+        <category>refactoring</category>
+        
+        <category>tool</category>
+        
+        
+        <category>tool</category>
+        
+      </item>
+    
+      <item>
+        <title>kafka内部结构以及如何保证高可靠</title>
+        <description>&lt;h4 id=&quot;背景介绍&quot;&gt;背景介绍&lt;/h4&gt;
+
+&lt;p&gt;Kafka 起初是由 LinkedIn 公司开发的一个分布式的消息系统，后成为 Apache 的一部分，它使用 Scala 编写，以可水平扩展和高吞吐率而被广泛使用。目前越来越多的开源分布式处理系统如 Cloudera、Apache Storm、Spark 等都支持与 Kafka 集成。&lt;/p&gt;
+
+&lt;p&gt;Kafka作为一个商业级消息中间件，消息可靠性的重要性可想而知。如何确保消息的精确传输?如何确保消息的准确存储?如何确保消息的正确消费? 本文首先从Kafka的架构着手，先了解下Kafka的基本原理，然后通过对kakfa的存储机制、复制原理、同步原理、可靠性和持久性保证等等一步步对其可靠性进行分析，&lt;/p&gt;
+
+&lt;h4 id=&quot;名词解释&quot;&gt;名词解释&lt;/h4&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;名称&lt;/th&gt;
+      &lt;th&gt;解释&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Broker&lt;/td&gt;
+      &lt;td&gt;消息中间件处理结点，一个Kafka节点就是一个broker，多个broker可以组成一个Kafka集群&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Topic&lt;/td&gt;
+      &lt;td&gt;Kafka根据topic对消息进行归类，发布到Kafka集群的每条消息都需要指定一个topic&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Producer&lt;/td&gt;
+      &lt;td&gt;消息生产者，向Broker发送消息的客户端&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Consumer&lt;/td&gt;
+      &lt;td&gt;消息消费者，从Broker读取消息的客户端&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;ConsumerGroup&lt;/td&gt;
+      &lt;td&gt;每个Consumer属于一个特定的Consumer Group，一条消息可以发送到多个不同的Consumer Group，但是一个Consumer Group中只能有一个Consumer能够消费该消息&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Partition&lt;/td&gt;
+      &lt;td&gt;topic物理上的分组，一个topic可以分为多个partition，每个partition是一个有序的队列。&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Segment&lt;/td&gt;
+      &lt;td&gt;partition物理上由多个segment组成。&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Consumer&lt;/td&gt;
+      &lt;td&gt;消息消费者，从Broker读取消息的客户端&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;offset&lt;/td&gt;
+      &lt;td&gt;消每个partition都由一系列有序的、不可变的消息组成，这些消息被连续的追加到partition中。 partition中的每个消息都有一个连续的序列号叫做offset,用于partition唯一标识一条消息.&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h4 id=&quot;文件存储机制&quot;&gt;文件存储机制&lt;/h4&gt;
+
+&lt;p&gt;我们通过四个方面来看kafka的存储机制。第一个topic中的partition是如何存储分布的？patition中的文件存储方式是什么样的，partiton中segment文件存储结构以及如何在partition中如何通过offset查找message。&lt;/p&gt;
+
+&lt;h5 id=&quot;topic中partition存储分布&quot;&gt;topic中partition存储分布&lt;/h5&gt;
+&lt;p&gt;假设实验环境中Kafka集群只有一个broker，xxx/message-folder为数据文件存储根目录，在Kafka broker中server.properties文件配置(参数log.dirs=xxx/message-folder)，例如创建2个topic名称分别为report_push、launch_info, partitions数量都为partitions=4&lt;/p&gt;
+
+&lt;p&gt;存储路径和目录规则为：
+xxx/message-folder&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    |-report_push-0
+    |-report_push-1
+    |-report_push-2
+    |-report_push-3
+    |-launch_info-0
+    |-launch_info-1
+    |-launch_info-2
+    |-launch_info-3
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;在Kafka文件存储中，同一个topic下有多个不同partition，每个partition为一个目录，partiton命名规则为topic名称+有序序号，第一个partiton序号从0开始，序号最大值为partitions数量减1。&lt;/p&gt;
+
+&lt;h5 id=&quot;partiton中文件存储方式&quot;&gt;partiton中文件存储方式&lt;/h5&gt;
+&lt;p&gt;下面示意图形象说明了partition中文件存储方式:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/01.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;每个partion(目录)相当于一个巨型文件被平均分配到多个大小相等segment(段)数据文件中。但每个段segment file消息数量不一定相等，这种特性方便old segment file快速被删除。
+每个partiton只需要支持顺序读写就行了，segment文件生命周期由服务端配置参数决定。&lt;/p&gt;
+
+&lt;p&gt;这样做的好处就是能快速删除无用文件，有效提高磁盘利用率。&lt;/p&gt;
+
+&lt;h5 id=&quot;partiton中segment文件存储结构&quot;&gt;partiton中segment文件存储结构&lt;/h5&gt;
+
+&lt;p&gt;上边我们了解到了Kafka文件系统partition存储方式，本节深入分析partion中segment file组成和物理结构。&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;segment file组成：由2大部分组成，分别为index file和data file，此2个文件一一对应，成对出现，后缀”.index”和“.log”分别表示为segment索引文件、数据文件.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;segment文件命名规则：partion全局的第一个segment从0开始，后续每个segment文件名为上一个segment文件最后一条消息的offset值。数值最大为64位long大小，19位数字字符长度，没有数字用0填充。&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;下面文件列表是笔者在Kafka broker上做的一个实验，创建一个topicXXX包含1 partition，设置每个segment大小为500MB,并启动producer向Kafka broker写入大量数据,如下图所示segment文件列表形象说明了上述2个规则：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/02.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;以上述图中一对segment file文件为例，说明segment中index&amp;lt;—-&amp;gt;data file对应关系物理结构如下：
+&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/03.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上述图中索引文件存储大量元数据，数据文件存储大量消息，索引文件中元数据指向对应数据文件中message的物理偏移地址。&lt;/p&gt;
+
+&lt;p&gt;其中以索引文件中元数据3,497为例，依次在数据文件中表示第3个message(在全局partiton表示第368772个message)、以及该消息的物理偏移地址为497。&lt;/p&gt;
+
+&lt;p&gt;从上述图了解到segment data file由许多message组成，下面详细说明message物理结构如下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/04.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;参数说明：&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;名称&lt;/th&gt;
+      &lt;th&gt;解释&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;8 byte offset&lt;/td&gt;
+      &lt;td&gt;在parition(分区)内的每条消息都有一个有序的id号，这个id号被称为偏移(offset),它可以唯一确定每条消息在parition(分区)内的位置。即offset表示partiion的第多少message&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;4 byte message size&lt;/td&gt;
+      &lt;td&gt;message大小&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;4 byte CRC32&lt;/td&gt;
+      &lt;td&gt;用crc32校验message&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1 byte “magic”&lt;/td&gt;
+      &lt;td&gt;表示本次发布Kafka服务程序协议版本号&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1 byte “attributes”&lt;/td&gt;
+      &lt;td&gt;表示为独立版本、或标识压缩类型、或编码类型。&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;4 byte key length&lt;/td&gt;
+      &lt;td&gt;表示key的长度,当key为-1时，K byte key字段不填&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;K byte key&lt;/td&gt;
+      &lt;td&gt;可选&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;value bytes payload&lt;/td&gt;
+      &lt;td&gt;表示实际消息数据。&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h5 id=&quot;在partition中如何通过offset查找message&quot;&gt;在partition中如何通过offset查找message&lt;/h5&gt;
+
+&lt;p&gt;例如读取offset=368776的message，需要通过下面2个步骤查找。&lt;/p&gt;
+
+&lt;p&gt;第一步查找segment file
+上述图为例，其中00000000000000000000.index表示最开始的文件，起始偏移量(offset)为0.第二个文件00000000000000368769.index的消息量起始偏移量为368770 = 368769 + 1.同样，第三个文件00000000000000737337.index的起始偏移量为737338=737337 + 1，其他后续文件依次类推，以起始偏移量命名并排序这些文件，只要根据offset 二分查找文件列表，就可以快速定位到具体文件。
+当offset=368776时定位到00000000000000368769.index|log&lt;/p&gt;
+
+&lt;p&gt;第二步通过segment file查找message
+通过第一步定位到segment file，当offset=368776时，依次定位到00000000000000368769.index的元数据物理位置和00000000000000368769.log的物理偏移地址，然后再通过00000000000000368769.log顺序查找直到offset=368776为止。&lt;/p&gt;
+
+&lt;p&gt;从上述图可知这样做的优点，segment index file采取稀疏索引存储方式，它减少索引文件大小，通过mmap可以直接内存操作，稀疏索引为数据文件的每个对应message设置一个元数据指针,它比稠密索引节省了更多的存储空间，但查找起来需要消耗更多的时间。&lt;/p&gt;
+
+&lt;p&gt;Kafka高效文件存储设计特点：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Kafka把topic中一个parition大文件分成多个小文件段，通过多个小文件段，就容易定期清除或删除已经消费完文件，减少磁盘占用。&lt;/li&gt;
+  &lt;li&gt;通过索引信息可以快速定位message和确定response的最大大小。&lt;/li&gt;
+  &lt;li&gt;通过index元数据全部映射到memory，可以避免segment file的IO磁盘操作。&lt;/li&gt;
+  &lt;li&gt;通过索引文件稀疏存储，可以大幅降低index文件元数据占用空间大小。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h4 id=&quot;内部架构设计&quot;&gt;内部架构设计&lt;/h4&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/05.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如上图所示，一个典型的Kafka集群中包含若干Producer（可以是web前端产生的Page View，或者是服务器日志，系统CPU、Memory等），若干broker（Kafka支持水平扩展，一般broker数量越多，集群吞吐率越高），若干Consumer Group，以及一个Zookeeper集群。Kafka通过Zookeeper管理集群配置，选举leader，以及在Consumer Group发生变化时进行rebalance。Producer使用push模式将消息发布到broker，Consumer使用pull模式从broker订阅并消费消息。&lt;/p&gt;
+
+&lt;h4 id=&quot;如何保证高可靠&quot;&gt;如何保证高可靠&lt;/h4&gt;
+
+&lt;p&gt;Kafka的高可靠性的保障来源于其健壮的副本（replication）策略。&lt;/p&gt;
+
+&lt;h5 id=&quot;数据同步&quot;&gt;数据同步&lt;/h5&gt;
+
+&lt;p&gt;kafka在0.8版本前没有提供Partition的Replication机制，一旦Broker宕机，其上的所有Partition就都无法提供服务，而Partition又没有备份数据，数据的可用性就大大降低了。所以0.8后提供了Replication机制来保证Broker的failover。&lt;/p&gt;
+
+&lt;p&gt;引入Replication之后，同一个Partition可能会有多个Replica，而这时需要在这些Replication之间选出一个Leader，Producer和Consumer只与这个Leader交互，其它Replica作为Follower从Leader中复制数据。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/06.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h5 id=&quot;副本放置策略&quot;&gt;副本放置策略&lt;/h5&gt;
+&lt;p&gt;为了更好的做负载均衡，Kafka尽量将所有的Partition均匀分配到整个集群上。&lt;/p&gt;
+
+&lt;p&gt;Kafka分配Replica的算法如下：&lt;/p&gt;
+
+&lt;p&gt;将所有存活的N个Brokers和待分配的Partition排序&lt;/p&gt;
+
+&lt;p&gt;将第i个Partition分配到第(i mod n)个Broker上，这个Partition的第一个Replica存在于这个分配的Broker上，并且会作为partition的优先副本&lt;/p&gt;
+
+&lt;p&gt;将第i个Partition的第j个Replica分配到第((i + j) mod n)个Broker上&lt;/p&gt;
+
+&lt;p&gt;假设集群一共有4个brokers，一个topic有4个partition，每个Partition有3个副本。下图是每个Broker上的副本分配情况0&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/07.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h5 id=&quot;同步策略&quot;&gt;同步策略&lt;/h5&gt;
+
+&lt;p&gt;Producer在发布消息到某个Partition时，先通过ZooKeeper找到该Partition的Leader，然后无论该Topic的Replication Factor为多少，Producer只将该消息发送到该Partition的Leader。Leader会将该消息写入其本地Log。每个Follower都从Leader pull数据。这种方式上，Follower存储的数据顺序与Leader保持一致。Follower在收到该消息并写入其Log后，向Leader发送ACK。一旦Leader收到了ISR中的所有Replica的ACK，该消息就被认为已经commit了，Leader将增加HW并且向Producer发送ACK。&lt;/p&gt;
+
+&lt;p&gt;为了提高性能，每个Follower在接收到数据后就立马向Leader发送ACK，而非等到数据写入Log中。因此，对于已经commit的消息，Kafka只能保证它被存于多个Replica的内存中，而不能保证它们被持久化到磁盘中，也就不能完全保证异常发生后该条消息一定能被Consumer消费。&lt;/p&gt;
+
+&lt;p&gt;Consumer读消息也是从Leader读取，只有被commit过的消息才会暴露给Consumer。&lt;/p&gt;
+
+&lt;p&gt;Kafka Replication的数据流如下图所示：
+&lt;img src=&quot;/assets/images/pictures/2020-02-20-kafka/08.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;对于Kafka而言，定义一个Broker是否“活着”包含两个条件：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;一是它必须维护与ZooKeeper的session（这个通过ZooKeeper的Heartbeat机制来实现）。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;二是Follower必须能够及时将Leader的消息复制过来，不能“落后太多”。&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Leader会跟踪与其保持同步的Replica列表，该列表称为ISR（即in-sync Replica）。如果一个Follower宕机，或者落后太多，Leader将把它从ISR中移除。这里所描述的“落后太多”指Follower复制的消息落后于Leader后的条数超过预定值或者Follower超过一定时间未向Leader发送fetch请求。&lt;/p&gt;
+
+&lt;p&gt;Kafka只解决fail/recover，一条消息只有被ISR里的所有Follower都从Leader复制过去才会被认为已提交。这样就避免了部分数据被写进了Leader，还没来得及被任何Follower复制就宕机了，而造成数据丢失（Consumer无法消费这些数据）。而对于Producer而言，它可以选择是否等待消息commit。这种机制确保了只要ISR有一个或以上的Follower，一条被commit的消息就不会丢失。&lt;/p&gt;
+
+&lt;h5 id=&quot;leader选举&quot;&gt;leader选举&lt;/h5&gt;
+&lt;p&gt;Leader选举本质上是一个分布式锁，有两种方式实现基于ZooKeeper的分布式锁：&lt;/p&gt;
+
+&lt;p&gt;节点名称唯一性：多个客户端创建一个节点，只有成功创建节点的客户端才能获得锁&lt;/p&gt;
+
+&lt;p&gt;临时顺序节点：所有客户端在某个目录下创建自己的临时顺序节点，只有序号最小的才获得锁&lt;/p&gt;
+
+&lt;p&gt;Majority Vote的选举策略和ZooKeeper中的Zab选举是类似的，实际上ZooKeeper内部本身就实现了少数服从多数的选举策略。kafka中对于Partition的leader副本的选举采用了第一种方法：为Partition分配副本，指定一个ZNode临时节点，第一个成功创建节点的副本就是Leader节点，其他副本会在这个ZNode节点上注册Watcher监听器，一旦Leader宕机，对应的临时节点就会被自动删除，这时注册在该节点上的所有Follower都会收到监听器事件，它们都会尝试创建该节点，只有创建成功的那个follower才会成为Leader（ZooKeeper保证对于一个节点只有一个客户端能创建成功），其他follower继续重新注册监听事件。&lt;/p&gt;
+
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/tool/kafka/</link>
+        <guid isPermaLink="true">http://localhost:4000/tool/kafka/</guid>
+        
+        <category>archtecture</category>
+        
+        <category>refactoring</category>
+        
+        <category>tool</category>
+        
+        
+        <category>tool</category>
+        
+      </item>
+    
+      <item>
+        <title>如何降低代码的圈复杂度</title>
+        <description>&lt;h4 id=&quot;背景介绍&quot;&gt;背景介绍&lt;/h4&gt;
+
+&lt;p&gt;不管小型公司还是大型互联网公司，很多项目债台高筑，新功能开发困难。其中一个很大的原因就是代码复杂，可读性差。Sonar开发团队曾上纲上线的戏称开发人员的7宗罪，其中很关键的一条就是“复杂度”。&lt;/p&gt;
+
+&lt;h4 id=&quot;如何有效地解决代码的圈复杂度来提高代码的可读性&quot;&gt;如何有效地解决代码的圈复杂度来提高代码的可读性？&lt;/h4&gt;
+
+&lt;p&gt;你好，我是张学刚。&lt;/p&gt;
+
+&lt;p&gt;我今天分享的是如何有效地解决代码的圈复杂度来提高代码的可读性？代码可维护性是代码质量的一个重要标准，而复杂度又是可维护性的一个重要指标。那复杂度有没有一个明确的衡量标准，我们又如何去解决代码的圈复杂度呢？今天我在这里和大家聊一下。&lt;/p&gt;
+
+&lt;h4 id=&quot;圈复杂度的计算方法&quot;&gt;圈复杂度的计算方法&lt;/h4&gt;
+
+&lt;h5 id=&quot;点边计算法&quot;&gt;点边计算法&lt;/h5&gt;
+
+&lt;p&gt;圈复杂度的计算方式 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;M = E − N + 2&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;E：控制流图中边的数量
+N：控制流图中的节点数量&lt;/p&gt;
+
+&lt;p&gt;控制流程图就是通过节点和边组成的图形，比如以下几个图形是典型的控制流程图。
+你好，我是张学刚。&lt;/p&gt;
+
+&lt;p&gt;我今天分享的是如何有效地解决代码的圈复杂度来提高代码的可读性？代码可维护性是代码质量的一个重要标准，而复杂度又是可维护性的一个重要指标。那复杂度有没有一个明确的衡量标准，我们又如何去解决代码的圈复杂度呢？今天我在这里和大家聊一下。&lt;/p&gt;
+
+&lt;p&gt;我们先来看一下圈复杂度与代码质量以及测试和维护成本之间的一个关系。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/02.jpg?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;我们可以看到当圈复杂度，在1-10之间的时候，代码是清晰，结构化的。可测试性比较高，维护成本也比较低。随着圈复杂度的升高，代码的状况开始恶化，当大于30的时候，代码已经逐步变为不可读，维护成本非常高。&lt;/p&gt;
+
+&lt;p&gt;那圈复杂度是如何计算的呢，常用的第一种方法叫做点边计算法，它圈复杂度的计算方式 
+V(G) = E − N + 2，我们用下边图来解释一下这个公式：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/01.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;其中公式之中的E指的是控制流图中边的数量，N指的是控制流图中的节点数量。这两个图形指的就是控制流图。那我们可以计算一下，第一个控制流图的圈复杂度是：4-4+2=2.&lt;/p&gt;
+
+&lt;p&gt;除此之外圈复杂度还有一种更为直观的计算方法，因为圈复杂度实际上体现了“判定条件”的数量，所以圈复杂度实际上就是等于判定节点的数量再加上1。它的计算公式为：V (G) = P + 1
+其中判定节点(P)指的是我们常用的分支语句。例如if语句、while语句、case语句等。&lt;/p&gt;
+
+&lt;p&gt;那如何来降低圈复杂度呢？&lt;/p&gt;
+
+&lt;h4 id=&quot;提炼函数&quot;&gt;提炼函数&lt;/h4&gt;
+
+&lt;p&gt;接下来我们重点介绍一些降低圈复杂的方法，我通过工作中常见的代码，来表述一下，如何去降低复杂度，如果你有更好的方法，也欢迎留言跟我交流。在我们的工作中，做业务系统的时候，通过异步消息进行数据传递，是比较常用的一种方式，在我们监听到对端系统的消息的时候，一般会做这几件事情。判断消息是否为空–&amp;gt;转换消息为数据传输对象DTO–&amp;gt;进一步的判断对象的数据是否合法–&amp;gt;进行业务逻辑的处理。这几个典型的步骤，很多童鞋可能用左边图的方式进行处理。这个时候，如果每一个步骤的方法比较复杂的时候，这个总的方法会非常复杂，这个时候，我们可以通过提炼方法的方式，对高内聚的操作，提炼到一个独立的方法中，来分治复杂性。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/03.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;使用卫语句&quot;&gt;使用卫语句&lt;/h4&gt;
+
+&lt;p&gt;我们知道圈复杂度的一个因素就是分支语句多，我们在写业务代码的时候，常见到这样的一种代码，if-then-else的层层嵌套。卫语句的原则是，如果某个条件极其罕见，就应该单独检查该条件，并在该条件为真时，立刻返回。下面是一个生产中的场景，如果记账请求落库成功后就进行余额的操作，如果不成功就返回失败结果。因为落库失败是不常见的，所以我们采用卫语句的方式，来减少分支语句。让代码更清晰。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/04.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;合并条件&quot;&gt;合并条件&lt;/h4&gt;
+
+&lt;p&gt;经常遇到一种情况，我们对错误的处理，需要返回给调用方，内部的错误码，为了方便快读的定位错误会非常详细，但是对外可能会泛化这种错误码，这个时候我们可以通过合并条件的方式，简化条件分支，来降低圈复杂度。下面是一个生产中的场景，如果记账失败，则对错误结果进行包装处理，并返回给调用方。这个时候我们可以将错误码合并，这里它是合并到map中，然后针对这组错误码统一进行了处理。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/05.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;通过多态方式替代条件式&quot;&gt;通过多态方式替代条件式&lt;/h4&gt;
+
+&lt;p&gt;在我们开发中，如果是一个平台化的系统，很多时候，有这样的需求。例如：不同的租户、不同的业务甚至不同的订单类型都会有不同的处理流程。
+这个时候最简单的方式，就是通过条件分支来进行不同的处理。但是当业务繁多的时候，处理分支会显得混乱，从而导致圈复杂度的升高，这个时候我们通过利用多态的方式，可以有效的降低复杂度。我们看一下下边这段代码，不同的订单类型，使用不同的处理流程，这里他使用了在枚举中实现多态的方式。我们发现，其实他是实现了工厂模式。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/06.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;替换算法&quot;&gt;替换算法&lt;/h4&gt;
+
+&lt;p&gt;复杂算法会导致bug可能性的增加及可理解性/可维护性的降低，如果函数对性能要求不高，提倡使用简单明了的算法。这里我引用了重构中的一个例子，我们可以一起看一下。这里传入一个人名的数组，如果数组中包含指定的名称，就立即返回名称。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/07.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;分解条件式&quot;&gt;分解条件式&lt;/h4&gt;
+&lt;p&gt;在面对大块头的代码时，你可以通过提炼方法的方式，将它分解为多个方法。根据每个小块代码的用途，命名新的方法名。对于条件逻辑，将每个分支条件分解成新方法可以突出条件逻辑，并更清楚的表达每个分支的作用。比如下面的例子中，夏季的时候商品的折扣和非夏天的商品折扣，是不同的计算方法。 这个时候，我们可以把两种算法，提炼到两个不通的方法中.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/08.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;移除控制标记&quot;&gt;移除控制标记&lt;/h4&gt;
+
+&lt;p&gt;有时候我们会通过控制标记来对循环进行处理，我们看一下这样的一段经常使用的代码，同一个数组列表中查找罪恶的人，匹配到任意一个罪恶的人后返回。这里found是控制标记，我们可通过下边的方式去掉控制标记，来减少一层循环，达到削减复杂度的效果。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/09.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;圈复杂度的思辨&quot;&gt;圈复杂度的思辨&lt;/h4&gt;
+
+&lt;p&gt;那是不是当我们检测到圈复杂度高的时候他就一定复杂呢，下面的代码是一个生产上的例子，他通过传入的MQ的名字，对MQ进行手动的暂停。当然这个地方是可以通过mq的名称，从spring的容器中，获取bean的。这里的例子是让大家看到，虽然，这个分支比较多，但是这种扁平化的结构可读性还是可以的。不过如果它做的不仅仅是一个暂停的操作，而是一个很复杂的操作，这个时候，可能就需要通过提炼方法的方式进行重构。如果提炼方法重构后，这个类还是过长，那就需要我们通过使用多态的特性，利用工厂模式等方式进行进一步的重构。如果一开始我们就通过应用一些复杂的设计模式进行重构，就会存在过度设计的弊端，使代码更不易于理解。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/10.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;今天的分享到这里就结束了，最后我来总结一下。今天首先介绍了什么是圈复杂度，然后介绍了解决圈复杂度的几种方法。&lt;/p&gt;
+
+&lt;p&gt;通过圈复杂度计算的两种方式我们可以看到，圈复杂度的核心是分支语句。那解决问题的核心就集中在如何去减少分支语句。&lt;/p&gt;
+
+&lt;p&gt;不过最后我们也看到了，实际上，只是刻板的使用圈复杂度的算法，去度量一个段代码的清晰度，有时候也是不可取的，所以我们在重构系统的时候，可以通过圈复杂度的工具，进行复杂度的统计，然后对复杂度高的代码，具体场景，具体分析。而不能一味的教条。&lt;/p&gt;
+
+&lt;p&gt;最后我们通过思维导图来梳理一下今天的知识点，让你对圈复杂度的解决方式有一个更直观的认识。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2020-02-20-cyclomatic_complexity/11.png?style=centerme&quot; alt=&quot;关系图&quot; /&gt;&lt;/p&gt;
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/tool/cyclomatic_complexity/</link>
+        <guid isPermaLink="true">http://localhost:4000/tool/cyclomatic_complexity/</guid>
+        
+        <category>archtecture</category>
+        
+        <category>refactoring</category>
+        
+        <category>tool</category>
+        
+        
+        <category>tool</category>
+        
+      </item>
+    
+      <item>
+        <title>如何识别与解决热点账户</title>
+        <description>&lt;h4 id=&quot;背景介绍&quot;&gt;背景介绍&lt;/h4&gt;
+&lt;p&gt;账务系统作为互联金融领域的基石系统，承载着所有账户的资金管控，那保证它的稳定可靠是系统建设的第一要务，我们知道在数据库中某个账户余额是一行记录，如果一个大商户每天出入金巨大，那就涉及到对该行记录频繁的更新，这对数据库是巨大的考验，接下来我就和大家一起聊一聊怎么去解决和规避这种频繁的操作问题。&lt;/p&gt;
+
+&lt;p&gt;今天分享的是关于如何解决互联网热点账户的问题。互联网解决了人们交易活动地域上的限制，产生了很多巨无霸的商家，对这些巨无霸商家交易账户的操作就成了热点操作，这些热点操作主要体现在账户的明细和余额上面，而这两个操作的更新又是在一个事务中进行的，但是对余额操作是稀缺的资源，所以更新余额就成了瓶颈。今天我和大家一起来聊一下如何解决和规避热点账户的问题（图1）。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/01.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图1&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;h4 id=&quot;三户模型&quot;&gt;三户模型&lt;/h4&gt;
+&lt;p&gt;如图所示，上面是某个商户的交易数据，假设4个交易数据同时过来，它们同时对明细进行插入，然后更新余额，这个时候我们可以看到，因为他们更新的是同一个账户的余额，所以这个时候，需要竞争对该行的操作权。该行成为热点行。这也就是我们上边所说的热点账户问题。&lt;/p&gt;
+
+&lt;p&gt;我们上边聊到了账户，那我们先来看一下什么是账户呢？支付行业的账户体系一般是基于三户模型，它们分别是客户、用户和账户。客户一般来说是一个比较社会化的概念，比如一个自然人和一个法人都可以被称之为客户，在系统中我们会将客户划分为个人和企业；用户是指客户在系统中登录账号的相关信息：包括账号、密码、角色、权限这些；账户是指我们为客户进行交易活动而开设的虚拟账户，主要与交易记账相关，我们说的热点账户，指的就是这个账户（图2）。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/02.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图2&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;通过这个图我们可以看出，客户、用户、和账户之间的关系。一般一个客户，可以注册多个用户，也可以在不同的业务下开通多个账户，所以客户和用户以及客户与账户之间都是一个1对多的关系。一个用户呢可以操作多个账户，反过来多个账户也可以同时被一个用户操作，用户和账户之间是多对多的关系。&lt;/p&gt;
+
+&lt;h4 id=&quot;热点账户的分&quot;&gt;热点账户的分&lt;/h4&gt;
+&lt;p&gt;那现在我们知道什么是账户和热点账户了，那热点账户有哪些分类呢，一般我们按资金发生的方向来分，可以分为加频账户、减频账户和双频账户，顾名思义，加频账户就是入金比较频繁的账户，比如募捐账户是典型的加频账户，这次新冠病毒的疫情组织的一些筹款活动，大家的爱国热情特别高，募捐的账户接受大量的捐款信息。假设用户的付款方式都是通过在第三方支付里开设的虚拟账户进行出款,募捐账户的金额到达目标金额后进行结算，那我们看一下他的资金流。(图3)&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/03.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图3&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;h5 id=&quot;减频双频账户&quot;&gt;减频/双频账户&lt;/h5&gt;
+&lt;p&gt;我们看到，这个时候大量的资金同时进入受款商户的待清算户，这个受款商户的待清算户成为加频热点账户。&lt;/p&gt;
+
+&lt;p&gt;与加频账户对应的就是减频账户，比如给员工发公司的账户、平台在第三方支付公司为增加用户体验设置的退款垫资户，这些都是典型的减频账户。双频账户也比较好理解，比如是电商平台性质的商户在支付公司的一个资金流(图4)。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/04.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图4&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;用户在平台进行下单购物，这个时候的该用户的钱，会先收取到该平台在第三方支付公司开设的内部户，然后转账给该平台的商户。这个时候该平台在第三方支付开设的内部户，就是一个双频账户。&lt;/p&gt;
+
+&lt;h4 id=&quot;解决热点账户的问题&quot;&gt;解决热点账户的问题&lt;/h4&gt;
+
+&lt;h5 id=&quot;限流&quot;&gt;限流&lt;/h5&gt;
+&lt;p&gt;介绍完上边的几类账户，现在进入我今天的重点部分，那就是如何去解决这些热点账户的问题？这里我介绍一下支付公司常用的几种方法。我们上边也说了，热点账户的瓶颈是因为大家同时竞争对余额的操作权，更新余额成为稀缺资源，那么我们核心宗旨减少单位时间内对余额的操作。首先我们来看一下第一种方式，限流。限流与缓存 、降级常常被作为高并发系统设计的三大利器。它是最直接的减少单位时间内余额操作的方式，它的原则很清晰，超出我能力范围的我不要（图5）。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/05.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图5&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;如图上我们看到的，这种方式很直接的减少了对商户余额的操作，但是我们也可以看到，它是通过拒绝了部分请求来实现的，这样对请求方是有损的，影响客户体验。所以这个方法一般是系统压测后，得到系统的承载阈值，作为系统保障的兜底措施来使用。&lt;/p&gt;
+
+&lt;h5 id=&quot;缓冲&quot;&gt;缓冲&lt;/h5&gt;
+&lt;p&gt;基于互联网的一些特点很多时候洪峰是瞬时的，那我们是不是可以先把瞬时的请求接下来，存在一个地方，然后再通过比较平均的速度，来处理这些数据呢？这就是我介绍的第二种方法：缓冲（图6）。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/06.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图6&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;我们可以看到，缓冲实际上就是同步转异步，先将请求接收下来，将请求放到可靠的消息队列中，并将结果返回给调用方，之后从消息队列中取出请求慢慢处理，用“削峰填谷”的方式来降低单位时间内对余额的操作。&lt;/p&gt;
+
+&lt;h5 id=&quot;批量&quot;&gt;批量&lt;/h5&gt;
+&lt;p&gt;那这种方式有什么问题呢，如果量太大，造成大量的积压，可能会导致日间的平均处理能力不能完成对整个队列的消费，最终造成循环积压。这种方案对于余额扣减的场景，因为消息积压还没有被消费，同时也存在账户透支的风险，这个时候当发生余额不足的时候需要及时的通知给调用方。&lt;/p&gt;
+
+&lt;p&gt;那还有什么方式来减小单位时间内对余额的操作呢，我们是不是可以通过汇总明细一次性提交更新余额的方式来减少更新余额的频次呢，这种汇总提交的方式也是第三方支付公司常用的方式。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/07.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图7&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;如图，我们先将请求明细保存起来。标识一下这条明细的状态，并标记该明细的汇总批次，后边通过定时任务，按批次对期间的明细进行汇总，一次性更新余额。并修改明细状态（图7）。这种汇总的方式，实现起来比较简单，比较适合于加频账户。但是他的缺点就是账户余额更新不够及时。&lt;/p&gt;
+
+&lt;h5 id=&quot;分治&quot;&gt;分治&lt;/h5&gt;
+&lt;p&gt;除了降低余额的更新频次，还有没有其它方式呢？实际上热点问题类似于秒杀、减库存的问题，也可以参考库存热点的方式来做，将库存拆分，采用分治的思想。理论上账户也可以拆分为多个影子账户，来承担主商户的压力（图8）。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/08.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图8&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;如图，商户的交易通过影子账户的路由，分流到不同的影子账户进行余额操作，最终达到单位时间内对单个账户余额的更新次数。这个方案看上去很好，但是库存和账户的处理还是有很多不同的，这里还是存在很多问题点。比如如何平衡各个影子账户的资金，如果某个影子账户的余额不足，需要扣多个影子账户要怎么处理。流水中金额前后的变动无法体现。&lt;/p&gt;
+
+&lt;h5 id=&quot;缓存&quot;&gt;缓存&lt;/h5&gt;
+&lt;p&gt;基于上边这个方案的一些不足点，我们考虑在方案中使用缓存的方式，缓存是高并发系统的又一个利器，将余额同步一部分到缓存中，当请求过来后先对缓存的余额进行操作。让缓存来阻挡住对数据库余额的频繁操作(图9)。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/09.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图9&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;如图，我们先将商户余额同步到缓存中，请求到达后，优先对缓存中的余额进行操作。后续可以在交易的低峰期进行对账操作，防止缓存故障导致的数据一致性问题，这种也是处理热点账户的一种比较常用的方式。但是这种账户一般只针对于减频账户(图9)。&lt;/p&gt;
+
+&lt;h4 id=&quot;热点账户识别&quot;&gt;热点账户识别&lt;/h4&gt;
+&lt;p&gt;那么说了这么多针对热点账户的解决方法，热点账户要怎样识别呢。我见过的账务系统，有事前配置的，也有使用redis计数器的。热点账户的识别因为比较具象，所以比热点事情的识别相比来说要容易很多。我这里介绍一个通过大数据平台来识别的方式。通过Spark Streaming的窗口计算(window computations)的功能，分析实时计算当前窗口账户的操作次数，最终发现热点账户key，把热点账户key上报给配置中心，再从配置中心下发给各个客户端，来实现热点账户的识别与处理的自动化（图10）。&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/10.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图10&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+
+&lt;p&gt;如图， 我们通过读取账务数据库的日志，在spark中对账务的请求按时间窗口实时统计，如果在窗口计算中达到设定的热点账户阈值，就将该账户上报给配置中心。配置中心将配置变更下发给客户端，然后客户端主动缓存热点账户的配置。当应用逻辑执行的时候，通过热点账户的判断逻辑，选择执行不同的应用程序分支。&lt;/p&gt;
+
+&lt;h2 id=&quot;总结&quot;&gt;总结&lt;/h2&gt;
+&lt;p&gt;最后我来总结一下。今天首先介绍了热点账户的成因，顺带说了下支付机构的账户体系模型以及热点账户的分类，最后着重介绍了解决热点账户的几种常用的处理方案。&lt;/p&gt;
+
+&lt;p&gt;解决热点账户围绕的核心就是怎么最大限度的去减少对稀有资源的争用。每种减少的方式都有它的优势和缺陷，在热点账户的解决上，也没有银弹。在实操过程中都需要按照业务场景以及账户的类型去权衡。&lt;/p&gt;
+
+&lt;p&gt;最后我们通过思维导图来梳理一下今天的知识点，让你对热点账户的解决方式有一个更直观的认识。（图11）&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+	&lt;img src=&quot;https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/11.png?style=centerme&quot; alt=&quot;Sample&quot; width=&quot;50%&quot; height=&quot;50%&quot; /&gt;
+	&lt;p align=&quot;center&quot;&gt;
+		&lt;em&gt;图11&lt;/em&gt;
+	&lt;/p&gt;
+&lt;/p&gt;
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/tool/hot_account/</link>
+        <guid isPermaLink="true">http://localhost:4000/tool/hot_account/</guid>
+        
+        <category>archtecture</category>
+        
+        <category>refactoring</category>
+        
+        <category>tool</category>
+        
+        
+        <category>tool</category>
+        
+      </item>
+    
+      <item>
+        <title>微服务架构设计模式</title>
+        <description>&lt;h4 id=&quot;概述&quot;&gt;概述&lt;/h4&gt;
+
+&lt;p&gt;我们最开始一般采用单体架构去创建应用程序，单体架构中，初始化、配置、监控和管理各种复杂的功能捆绑在一起，当业务快速发发展时，这就给开发和运维带来了挑战。由于单体架构开发上运维上的问题，软件行业开始尝试新的东西，亚马逊早在2002年左右开始逐步从单体架构迁移，新架构用一系列松耦合的服务取代了单体，最终实现了平均11.6s就能将代码的更待部署到生产环境中。&lt;/p&gt;
+
+&lt;p&gt;现在我们也在也在尝试用微服务架构去拆分单体的应用，那如何实践？这篇文章和大家讨论一下，微服务架构设计的一些想法和最佳实践。&lt;/p&gt;
+
+&lt;h4 id=&quot;单体架构&quot;&gt;单体架构&lt;/h4&gt;
+
+&lt;p&gt;我们通过一个例子来简单的说明一下单体架构，假设我们要构建一个电商应用，它能够支持接收客户的订单、验证库存、查看客户账户的信用额度，而后进行发货。该程序有多个组件组成StoreFrontUI负责实现用户界面，而其它后端服务则分别负责检查信用额度、维护库存和发送订单。&lt;/p&gt;
+
+&lt;p&gt;该应用通过Apache/Nginx实现请求的转发和负载均衡，将单体打包为WAR文件，为了提高扩展性和可用性，你可以在负载均衡器之后运行此应用的多个实例。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-26-microservices_arc/DecomposingApplications.011.jpg&quot; alt=&quot;典型的单体架构&quot; style=&quot;zoom:80%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;这个单体应用的好处：&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;易于开发 — 当前开发工具与IDE的设计目标即在于支持单体应用的开发。&lt;/li&gt;
+  &lt;li&gt;易于部署 — 你只需要将该WAR（或者目录层级）部署在合适的运行环境中即可。&lt;/li&gt;
+  &lt;li&gt;易于扩展 — 你可以在负载均衡器后面运行多个应用副本实现扩展。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;然而，一旦应用变大、团队扩大，这种方案的弊端将会变得愈发明显：&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;单体应用巨大的代码库可能会让人望而生畏，特别是对那些团队新成员来说。应用难以被理解和进行修改，进而导致开发速度减慢。由于没有清晰的模块边界，模块化会逐渐消失。另外，由于难以正确把握代码变化，导致代码质量逐步下滑，陷入恶性循环。&lt;/li&gt;
+  &lt;li&gt;过载的IDE——代码库越大，IDE速度越慢，开发者的生产效率越低。&lt;/li&gt;
+  &lt;li&gt;过载的Web容器——应用越大，Web容器启动时间越长。容器启动耗费时间，极大影响到开发者的生产效率。对部署工作也有负面影响。&lt;/li&gt;
+  &lt;li&gt;持续部署困难——巨大的单体应用本身就是频繁部署的一大障碍。为了更新一个组件，你必须重新部署整个应用。这会中断那些可能与更改无关的后台任务（例如Java应用中的Quartz任务），同时可能引发问题。另外，未被更新的组件有可能无法正常启动。重新部署会增加风险，进而阻碍频繁更新。因为用户界面开发者经常需要进行快速迭代与频繁重新部署，所以这对用户界面开发者而言更加是个难题。&lt;/li&gt;
+  &lt;li&gt;应用扩展困难——单体架构只能进行一维伸缩。一方面，它可以通过运行多个应用副本来增加业务容量，实现扩展。一些云服务甚至可以根据负载量动态调整实例数量。但在另一方面，数据量增大会使得该架构无法伸缩。每个应用实例需要访问所有数据，导致缓存低效，加大内存占用和I/O流量。另外，不同的应用组件有不同的资源需求——有的是CPU密集型的，另外一些是内存密集型的。单体架构无法单独伸缩每个组件。&lt;/li&gt;
+  &lt;li&gt;难于进行规模化开发——单体应用是规模化开发的障碍。应用一旦达到特定规模，需要将现有组织拆分成多个团队，每个团队负责不同的功能模块。举例来说，我们可能需要设立UI团队、会计团队、库存团队等等。单体应用的问题在于它使团队无法独立展开工作。团队需要在工作进度和重新部署上进行协调。对于各团队而言，这使得变更和更新产品变得异常困难。&lt;/li&gt;
+  &lt;li&gt;需要长期关注同一套技术栈——单体架构迫使我们长期使用在开发初期选定的技术堆栈（在某些情况下，可能是某些技术的特定版本）。单体应用是渐进采用新技术的障碍。举例来说，如果我们选择了JVM，那么我们可以选择Java以外的一些语言，因为Groovy和Scala等基于JVM的语言也可以和Java进行良好的互操作。但此时以非JVM语言编写的组件就无法在该单体架构中使用。另外，如果大家所使用的应用平台框架已经过时，那么我们将很难将应用迁移到其它更新并且更完善的框架当中。有时候为了采用一套新型平台框架，我们甚至需要重写整个应用，这是风险很大的工作。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;微服务架构是一种能够解决单体架构各种局限的备选模式。&lt;/p&gt;
+
+&lt;p&gt;知名的互联网服务商最初皆采用单体架构，包括 Netflix、Amazon.com 以及 eBay 等等。作者开发的大多数 Web 应用也是用单体架构。但是现在快速发发展的商业模式下，这也不一定了。比如7FRESH和盒马鲜生等一些被寄予厚望的业务，一开始就争取到了大量的技术资源和飞速扩展的能力，那他一开始就可以关注未来半年甚至近几年的一个容量评估，而做出基于现状的选择。&lt;/p&gt;
+
+&lt;h4 id=&quot;微服务架构&quot;&gt;微服务架构&lt;/h4&gt;
+
+&lt;p&gt;Scale Cube 是用于定义微服务和扩展技术产品的模型。AKF Partners于2007年发明了Scale Cube，最初于2007年在我们的博客上在线发布（原创文章），随后在我们的第一本书“ 可伸缩性艺术”和第二本书“ 可伸缩性规则”中发布。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-26-microservices_arc/DecomposingApplications.021.jpg&quot; alt=&quot;微服务架构&quot; style=&quot;zoom:80%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Scale Cube（有时称为“AKF Scale Cube”或“AKF Cube”）由3个轴组成：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;X轴：服务和数据的水平复制和克隆&lt;/li&gt;
+  &lt;li&gt;Y轴：功能分解和分段 - 微服务（或微服务）&lt;/li&gt;
+  &lt;li&gt;Z轴：沿客户边界的服务和数据分区 - 碎片/盒&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们还是通过上边的例子继续来讲微服务的架构，假设我们要构建一个电商应用，它能够支持接收客户的订单、验证库存、查看客户账户的信用额度，而后进行发货，该应用程序会包含多个组件，其中StoreFrontUI负责实现用户界面，而其它后端服务则分别负责检查信用额度、维护库存信息以及发送订单。&lt;/p&gt;
+
+&lt;p&gt;此应用程序被部署为一组服务集合。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-26-microservices_arc/Microservice_Architecture.png&quot; alt=&quot;微服务架构&quot; style=&quot;zoom:100%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;这个解决方案有什么好处呢，他的出现也主要是解决单体应用面临的问题，我们看看他如何解决了单体架构的问题：&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;每项微服务相对较小
+    &lt;ul&gt;
+      &lt;li&gt;易于开发者理解&lt;/li&gt;
+      &lt;li&gt;IDE处理速度更快，可提高开发者生产效率&lt;/li&gt;
+      &lt;li&gt;Web容器启动速度更快，提高开发者生产效率并可加快部署速度&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;每项服务皆可独立于其它服务进行部署——简化频繁部署新服务版本的流程&lt;/li&gt;
+  &lt;li&gt;易于实现规模化开发。多团队可以共同进行开发工作。每个（双披萨，即团队成员规模控制在订购两块披萨即可吃饱的程度）团队负责其中一项服务。各团队可独立于其他团队，进行开发、部署工作及扩展自身服务。&lt;/li&gt;
+  &lt;li&gt;改善故障隔离。举例来说，如果某一服务出现内存外溢，则只有该服务本身受到影响。其它服务将继续正常处理请求。相比之下，单体架构中的故障组件会令整套系统陷入瘫痪。&lt;/li&gt;
+  &lt;li&gt;每项服务可独立进行开发与部署&lt;/li&gt;
+  &lt;li&gt;无需长期使用同一套技术堆栈&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;那微服务架构优势很什么弊端呢？&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;开发者必须应对创建分布式系统所产生的额外的复杂因素。
+    &lt;ul&gt;
+      &lt;li&gt;现有开发者工具/IDE主要面向单体应用程序，因此无法显式支持分布式应用的开发。&lt;/li&gt;
+      &lt;li&gt;测试工作更加困难。&lt;/li&gt;
+      &lt;li&gt;开发者必须采取服务间通信机制。&lt;/li&gt;
+      &lt;li&gt;很难在不使用分布式事务机制的情况下跨服务实现功能。&lt;/li&gt;
+      &lt;li&gt;跨服务实现功能要求各团队进行密切协作。&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;部署复杂。在生产环境下，对这类多种服务类型构建而成的系统进行部署与管理十分困难。&lt;/li&gt;
+  &lt;li&gt;内存占用量更高。微服务架构使用N*M个服务实例替代N个单体应用实例，如果每项服务运行自己的JVM（或者其它类似机制），且各实例之间需要进行隔离，那将导致M倍JVM运行时的额外开销。另外，如果每项服务都在自己的虚拟机（例如 EC2 实例）上运行，如同Netflix一样，那么额外开销会更高。
+需要解决的问题&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;微服务架构的弊端使它必须面临一些必须要解决的问题？&lt;/strong&gt;&lt;/p&gt;
+
+&lt;h6 id=&quot;判断什么时候应该使用微服务架构&quot;&gt;判断什么时候应该使用微服务架构？&lt;/h6&gt;
+
+&lt;p&gt;应用此类方案带来的挑战在于如何把握好时机。在开发应用程序的最初版本时，大家往往不会面临需要使用微服务架构才能解决的问题。另外，使用复杂的分布式架构会拖慢开发流程。对于初创企业，其面临的最大挑战往往在于如何快速发展商业模式及附属应用。微服务架构中的Y轴拆分方式可能使应用更加难以迅速迭代。但是，如果当面临需要解决扩展性问题的时候再去进行功能拆分，单体应用的复杂依赖性使其很难被分解为服务集合。&lt;/p&gt;
+
+&lt;h6 id=&quot;如何将应用拆分为服务&quot;&gt;如何将应用拆分为服务？&lt;/h6&gt;
+
+&lt;p&gt;另一项挑战在于如何将系统拆分为多个微服务。这虽然很棘手但还是有些可行之策：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;根据业务能力拆分（Decompose by business capability） - 根据业务能力界定服务的范围&lt;/li&gt;
+  &lt;li&gt;根据领域的子域拆分（Decompose by subdomain） - 根据领域驱动设计中子域的概念界定服务的范围&lt;/li&gt;
+  &lt;li&gt;根据“动词”或者用例进行服务划分。举例来说，我们经常会在电子商务应用中发现有单独的“发货”服务用于处理已完成订单。另一种常见的“动词”划分方式是实现登录用例的“登录”服务。&lt;/li&gt;
+  &lt;li&gt;根据“名词”或者资源进行系统划分。这类服务负责利用特定的实体/资源完成一系列操作。举例来说，大家可能会在电子商务系统当中发现有“库存”服务用于跟踪货物的库存。
+在理想情况下，每项服务都应只面向一小部分职责。（大叔）Bob Martin 曾提出根据单一责任原则（Single Responsibility Principle，简称 SRP）进行类的设计。SRP 会用单一变更理由去定义一个类的职责：一个类的状态变更只能由一个原因导致。同理，我们也可以在微服务设计当中引入 SRP。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;另一项可用于指导服务设计的是Unix工具的设计思路。Unix 提供大量工具选项，包括 grep、cat 以及 find 等等。每种工具都只负责实现一项功能，而且功能良好，它们可以通过Shell脚本与其它工具结合进而执行复杂的任务。&lt;/p&gt;
+
+&lt;h6 id=&quot;如何维护数据一致性&quot;&gt;如何维护数据一致性？&lt;/h6&gt;
+
+&lt;p&gt;为了确保松耦合，每个服务都有独用的数据库。维护服务间的数据一致性成为了挑战。在多数应用的架构下，2 阶段提交和分布式事务不再是一个可选项。应用需要采用事件驱动架构，一个服务在其数据发生变化时，对外发布一个事件，其他服务订阅并通过消费这个事件来对应更新自己的数据。有一些可靠的方式可以实现事件的发布和数据的更新，比如事件溯源 和事物日志跟踪。&lt;/p&gt;
+
+&lt;h6 id=&quot;如何实现数据查询&quot;&gt;如何实现数据查询？&lt;/h6&gt;
+
+&lt;p&gt;另一个挑战是进行跨服务的数据的查询。一个常用的解决方式是采用CQRS，维护一份包含重要数据的视图并通过事件流的方式保持数据的更新。&lt;/p&gt;
+
+&lt;p&gt;为了解决微服务所遇到的问题，也衍生出了分布式系统中的各种模式，在微服务建设中，你可能需要如下这些设计模式：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-26-microservices_arc/PatternsRelatedToMicroservices.jpg&quot; alt=&quot;微服务架构的模式&quot; style=&quot;zoom:80%&quot; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;服务拆分模式
+    &lt;ul&gt;
+      &lt;li&gt;根据业务能力拆分&lt;/li&gt;
+      &lt;li&gt;根据领域的子域拆分&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;每服务数据库模式 描述了服务之间采用独享数据库的方式实现了解耦合。&lt;/li&gt;
+  &lt;li&gt;API 网关模式 定义在微服务架构下客户端访问服务的方式。&lt;/li&gt;
+  &lt;li&gt;客户端服务发现 和 服务器端服务发现 模式用来在微服务架构中把客户端请求路由到一个可用的服务实例上。&lt;/li&gt;
+  &lt;li&gt;消息和远程过程调用是服务间通信的两种选择。&lt;/li&gt;
+  &lt;li&gt;单主机上部署服务的单个实例 和 单主机上部署服务的多个实例 模式是两种不同的部署策略。&lt;/li&gt;
+  &lt;li&gt;解决边界问题的模式：: 微服务的基底模式 和 配置信息外部化new&lt;/li&gt;
+  &lt;li&gt;可测试性模式: 服务组件测试new 和 服务集成协议测试new&lt;/li&gt;
+  &lt;li&gt;断路器&lt;/li&gt;
+  &lt;li&gt;访问令牌&lt;/li&gt;
+  &lt;li&gt;可观测性模式:
+    &lt;ul&gt;
+      &lt;li&gt;应用日志&lt;/li&gt;
+      &lt;li&gt;应用指标&lt;/li&gt;
+      &lt;li&gt;审计日志&lt;/li&gt;
+      &lt;li&gt;分布式追踪&lt;/li&gt;
+      &lt;li&gt;异常追踪&lt;/li&gt;
+      &lt;li&gt;健康检查&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;UI 模式:
+    &lt;ul&gt;
+      &lt;li&gt;服务器端页面碎片化元素构建&lt;/li&gt;
+      &lt;li&gt;客户端 UI 构建&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h4 id=&quot;参考&quot;&gt;参考&lt;/h4&gt;
+&lt;p&gt;&lt;a href=&quot;https://microservices.io/&quot;&gt;微服务架构模式&lt;/a&gt;&lt;/p&gt;
+
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/tool/microservices_arc/</link>
+        <guid isPermaLink="true">http://localhost:4000/tool/microservices_arc/</guid>
+        
+        <category>archtecture</category>
+        
+        <category>refactoring</category>
+        
+        <category>tool</category>
+        
+        
+        <category>tool</category>
+        
+      </item>
+    
+      <item>
+        <title>Mysql 索引原理与Mysql优化</title>
+        <description>&lt;h4 id=&quot;背景介绍&quot;&gt;背景介绍&lt;/h4&gt;
+&lt;p&gt;不可否认的是，MySQL由于其性能高、成本低、可靠性好，已经成为最流行的开源数据库之一，随着MySQL的不断成熟，它也逐渐用于更多大规模网站和应用，国内大部分互联网公司在去IOE的过程中，用MySQL的居多，创业公司也大部分采用了MySQL。互联网的不断发展中，体验成为了企业决胜的一大要素，而体验有一个很重要的衡量指标就是影响速度。响应速度很大程度上瓶颈都在数据库的瓶颈，那极致的优化数据库的性能变得很重要。索引结构在Mysql的查询中起到了重要的作用，那了解其数据结构，并针对其优化变得异常重要。&lt;/p&gt;
+
+&lt;h4 id=&quot;索引的数据结构&quot;&gt;索引的数据结构&lt;/h4&gt;
+
+&lt;p&gt;我们知道，数据库查询是数据库最重要的功能之一。我们都希望查询数据的速度能够尽可能的块，因此数据库系统的设计者会从查询算法的角度进行优化。我们知道MYSQL索引是&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;帮助MySQL高效获取数据的数据结构。它的本质就是数据结构，单独存储在磁盘上，用它来提高数据查询的效率。&lt;/code&gt;，那么我们需要保证他尽可能少的执行磁盘IO操作。数据结构随着应用场景的不断增多，也不断的演化，从最简单的顺序查找、到二分查找、到二叉树的查找。仔细想一下，这些数据结构都有自己的特定应用场景。接下来我们大概说一下这几个数据结构的特点，然后来看看数据库为什么普遍选择B树来作为自己的索引数据结构。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;二叉查找树（Binary Search Tree）&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;我们先来看下比较平衡的二叉树（Binary Search Tree）：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-15-mysql_index/BinarySearchTree.png&quot; alt=&quot;二叉树&quot; style=&quot;zoom:50%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;对该二叉树的节点进行查找发现深度为1的节点的查找次数为1，深度为2的查找次数为2，深度为n的节点的查找次数为n，因此其平均查找次数为 (1+2+2+3+3+3) / 6 = 2.3次&lt;/p&gt;
+
+&lt;p&gt;这里有推荐两个比较好的算法的演示平台：&lt;a href=&quot;https://visualgo.net/zh/bst&quot;&gt;二叉树的构造过程演示&lt;/a&gt;；&lt;a href=&quot;https://www.cs.usfca.edu/~galles/visualization/flash.html&quot;&gt;二叉树的构造过程演示&lt;/a&gt; 我们可以在这里演示二叉树的构造和删改过程，我们不难发现，虽然在删除方面算法相对比较复杂，但是在查找、插入和删除的时候都比较快。但是它有个比较大的问题，二叉树的任意构造，会出现一种极端情况，如图：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-15-mysql_index/skewedleft.png&quot; alt=&quot;二叉树&quot; style=&quot;zoom:50%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这样二叉树，退化为线性表，导致树的高度过高，从而降低了查询效率。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;那么如何解决二叉查找树多次插入新节点而导致的不平衡,是不是让树尽可能平衡就行了，如何让树平衡了这就产生了平衡二叉查找树（AVL Tree）&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;平衡二叉查找树（AVL Tree）&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;为了避免插入新节点后导致的不平衡问题，AVL走向了极端，它给自己设定了一个约定，任何一个节点的左子树和右子树的深度之差不得超过1，当然为了实现这个约定，它每次插入删除数据通过不断的left rotation和right rotation来保证平衡。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-15-mysql_index/avl.png&quot; alt=&quot;二叉树&quot; style=&quot;zoom:50%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;而旋转是非常耗时的。由此他只适合在插入和删除次数比较少，但是查找多的场景下。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;那么如何解决这种旋转的问题，是不是让旋转次数少一点，折中处理下就好了，于是就有了红黑树&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;红黑树&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;相对于要求严格的AVL树来说，它的旋转次数变少，为了实现这种旋转次数的减少，它也自己设定了一个约定&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;通过对任何一条从根到叶子的路径上各个节点着色的方式的限制，红黑树确保没有一条路径会比其它路径长出两倍。&lt;/code&gt;， 我们可以看出它是一种弱平衡的二叉树。它基本长这个样子：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-15-mysql_index/redBlack.png&quot; alt=&quot;二叉树&quot; style=&quot;zoom:50%&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;因为这篇文章不是讲红黑树的，我们只需要知道，这个数据结构的一个特点，如果要搞懂红黑树的一个基本原理可以参考这个文章：
+&lt;a href=&quot;https://www.toutiao.com/i6584714397543825927/?tt_from=weixin_moments&amp;amp;utm_campaign=client_share&amp;amp;wxshare_count=2&amp;amp;from=timeline&amp;amp;share_type=original&amp;amp;timestamp=1544587349&amp;amp;app=news_article&amp;amp;utm_source=weixin_moments&amp;amp;iid=53509037357&amp;amp;utm_medium=toutiao_android&amp;amp;group_id=6584714397543825927&amp;amp;pbid=6633976754150000142&quot;&gt;五分钟搞懂什么是红黑树（全程图解）&lt;/a&gt;，我们看到红黑树的高度是没有限制的，这样数据量大的时候，发生IO次数可能就会非常多，影响性能。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;那么怎么解决IO次数多的问题呢，也很简单，让每一层存储更多的数据就好了，于是就有人想到了平衡N叉查找树&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;平衡多路查找树（B-Tree）/ (B+Tree)&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;因为增加了叉数，树的高度就可以控制了，于是就产生了平衡N叉查找树。B树在提高了IO性能的同时并没有解决元素遍历的效率低下的问题，B+树只需要去遍历叶子节点就可以实现整棵树的遍历。而且在数据库中基于范围的查询是非常频繁的，而B树不支持这样的操作或者说效率太低。所以B+树产生了。&lt;/p&gt;
+
+&lt;h4 id=&quot;解读执行计划&quot;&gt;解读执行计划&lt;/h4&gt;
+
+&lt;p&gt;通过explain命令我们可以查看sql的执行计划，然后我们依次解读一下执行计划的列。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-10-15-mysql_index/mysqlExplain.png&quot; alt=&quot;sql执行计划&quot; style=&quot;zoom:50%&quot; /&gt;&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;tr&gt;
+    &lt;th&gt;列名&lt;/th&gt;
+    &lt;th&gt;解读&lt;/th&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;id&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;id用来表示执行顺序，id相同的为一组，先执行id数字大的组，然后执行数字小的组。在id相同的一组内，顺序由上而下执行。子查询和union操作产生新的id，普通的join不会产生新id &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;select type&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;查询类型，如普通查询，子查询，union，物化视图等，对于只写单表的我们，意义不大，不再介绍&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;table&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;该行分析对应的表名&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;partitions&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;匹配的分区&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td rowspan=&quot;7&quot;&gt;type&lt;/td&gt;
+    &lt;td&gt;ALL：代表全表扫描（如果有limit，也会显示ALL，其实可能没有扫描全部的数据，扫描部分就停止了），&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;index：代表索引全扫描，它的性能甚至不如ALL，使用这个一般是为了避免排序或者覆盖索引扫描。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;irange：索引范围扫描（用户可以用到索引的&amp;gt; between in等）。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;ref：是非唯一性索引扫描，常见的是作用在=的比较上，但是非唯一。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;eq_ref：ref的唯一性索引扫描。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;const, system: 当MySQL对查询某部分进行优化，并转换为一个常量时，使用这些类型访问。如将主键置于where列表中，MySQL就能将该查询转换为一个常量。system是const类型的特例，当查询的表只有一行的情况下， 使用system。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;index_merge：此连接类型表示使用索引合并优化。&lt;/td&gt;
+  &lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td&gt;possible_keys&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;可能选择的索引&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td&gt;key&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;实际选择的索引&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td&gt;key_len&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;实际选择的索引的长度&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td&gt;ref&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;常数或列名。指与索引列比较的列或常数&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td&gt;rows&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;表示MySQL根据表统计信息及索引选用情况，估算的找到所需的记录所需要读取的行数&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td&gt;filtered&lt;/td&gt;
+    &lt;td colspan=&quot;2&quot;&gt;按表条件过滤行数的百分比&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+    &lt;td rowspan=&quot;7&quot;&gt;extra&lt;/td&gt;
+    &lt;td&gt;use index：使用了覆盖索引扫描。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;use where:这里并不是表示使用了where条件的意思，而是说服务层从存储引擎获取数据之后再进行where过滤。（事实上，这一列总是在不该出现的时候出现）&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;Using index condition：表示使用索引条件下推。&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;Using filesort：使用了排序&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;Using temporary：使用了临时表&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;Impossible WHERE：出现在优化阶段，优化器根据表定义可以判断出where条件根本不可能成立，比如主健不可能为空&lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+    &lt;td&gt;Using join buffer (Block Nested Loop)：mysql使用了优化过的nest loop算法，一次读取多个块.&lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/table&gt;
+
+&lt;h4 id=&quot;索引匹配的原则&quot;&gt;索引匹配的原则&lt;/h4&gt;
+
+&lt;p&gt;最左前缀匹配原则，非常重要的原则，mysql会一直向右匹配直到遇到范围查询(&amp;gt;、&amp;lt;、between、like)就停止匹配，比如a = 1 and b = 2 and c &amp;gt; 3 and d = 4 如果建立(a,b,c,d)顺序的索引，d是用不到索引的，如果建立(a,b,d,c)的索引则都可以用到，a,b,d的顺序可以任意调整。&lt;/p&gt;
+
+&lt;p&gt;=和in可以乱序，比如a = 1 and b = 2 and c = 3 建立(a,b,c)索引可以任意顺序，mysql的查询优化器会帮你优化成索引可以识别的形式。&lt;/p&gt;
+
+&lt;p&gt;尽量选择区分度高的列作为索引，区分度的公式是count(distinct col)/count(*)，表示字段不重复的比例，比例越大我们扫描的记录数越少，唯一键的区分度是1，而一些状态、性别字段可能在大数据面前区分度就是0，那可能有人会问，这个比例有什么经验值吗？使用场景不同，这个值也很难确定，一般需要join的字段我们都要求是0.1以上，即平均1条扫描10条记录。&lt;/p&gt;
+
+&lt;p&gt;索引列不能参与计算，保持列“干净”，比如from_unixtime(create_time) = ’2014-05-29’就不能使用到索引，原因很简单，b+树中存的都是数据表中的字段值，但进行检索时，需要把所有元素都应用函数才能比较，显然成本太大。所以语句应该写成create_time = unix_timestamp(’2014-05-29’)。&lt;/p&gt;
+
+&lt;p&gt;尽量的扩展索引，不要新建索引。比如表中已经有a的索引，现在要加(a,b)的索引，那么只需要修改原来的索引即可。&lt;/p&gt;
+
+&lt;p&gt;不要为输出列加索引，&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;select ip_address from t_user_action_log where name=&apos;LiSi&apos; group by action order by create_time&lt;/code&gt;, 这个时候可以考虑增加在 name action create_time 列上，而不是 ip_address。&lt;/p&gt;
+
+&lt;h4 id=&quot;总结&quot;&gt;总结&lt;/h4&gt;
+
+&lt;p&gt;本文中还参考了如下内容：&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://dev.mysql.com/doc/refman/5.6/en/innodb-deadlocks.html&quot;&gt;mysql官方手册&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;《高性能Mysql》&lt;/p&gt;
+
+&lt;p&gt;Google&lt;/p&gt;
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/mysql/mysql_index/</link>
+        <guid isPermaLink="true">http://localhost:4000/mysql/mysql_index/</guid>
+        
+        <category>index</category>
+        
+        <category>mysql</category>
+        
+        <category>database</category>
+        
+        
+        <category>mysql</category>
+        
+      </item>
+    
+      <item>
+        <title>如何通过脚手架来规范研发</title>
+        <description>&lt;h4 id=&quot;软件架构面临的问题&quot;&gt;软件架构面临的问题&lt;/h4&gt;
+
+&lt;p&gt;Bob在在整洁架构中提到：&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;软件架构的终极目标是，用最小的人力成本来满足构建和维护系统的需求&lt;/code&gt; ，Eric Evans在领域驱动设计中也多次强调架构设计的重要。我们也常常看到的很多三年以上的工程领域模型混乱、架构分层不合理、项目工程边界划分混乱、重复功能多。导致这种现象的原因很多，最终的原因可能是人的问题，人的软件水准参差不齐，人员流动大等等很多元素，在我跟很多大厂的朋友聊天，他们也一致的反馈了很多一致的结果，业务系统代码的逐步腐化，很整洁的业务系统很少。&lt;/p&gt;
+
+&lt;p&gt;更多的，我们看到很多这样的现象，一个技术复杂度简单的系统，却需要很多人去维护，对于开发者而言要7*24小时的救火，对于管理者来言，简单的功能上线的投入越来越大，如何规避这种问题呢? 上面我们说这些问题是人引起的，那解决这些问题就要在人上去解决，如果你用心发现，你会发现这样一个问题，团队与团队之间的差距是巨大的，如果一个学习氛围浓厚的团队，他们的技术输出能力，沉淀能力与其它团队相比差距是巨大的。&lt;/p&gt;
+
+&lt;p&gt;是的，我要聊的就是建立大家的软件的审美，建立大家的热情，建立共同的约束、共同前行沉淀文化。我一直认为写代码、写作和绘画，所有这些创造的过程是基本类似的，第一位的是你要有正确的审美，第二你要有创造的热情，第三制定规约砥砺前行。最后慢慢沉淀思想的结晶和技术文化。人员的流动是控制不了的，但是思想的沉淀却如同给后边的人留下了巨人的肩膀。&lt;/p&gt;
+
+&lt;h4 id=&quot;如何解决这些问题&quot;&gt;如何解决这些问题&lt;/h4&gt;
+
+&lt;p&gt;如何解决这些人的问题呢，我们可以通过招聘去招比自己更优秀的人，通过文化思想的相荡来提升大家的审美，也可以内部培养，但是更多的时候，这需要长期的建设，如何短时间内就形成一种积累呢，那就是工程纪律的建设。工程纪律可以参考性质的，比如阿里出的java开发手册以及附带的idea的检查工具；也可以是强制性的，比如在代码合并的时候增加代码规则检查，如果不通过不能进行分支合并或者上线。我们通过大量的实施发现这些宽松的或者强制的检查，虽然初期可能是不适的，但是日益积累对技术人员的影响却是巨大的，他实实在在影响了技术文化。&lt;/p&gt;
+
+&lt;h4 id=&quot;工程纪律的实施&quot;&gt;工程纪律的实施&lt;/h4&gt;
+
+&lt;p&gt;我们发现一个问题，如果你让研发人原去看文档，他大多不能完全按文档的规范来，但是如果你给他一个开箱即用规范框架，并且提供相关约束的样例，他大多会按照这个样例进行粘贴和修改，从而保证了代码的统一和规范。此脚手架面向的是组织或者企业内部，他比开源的规范更加细致，并打包一些自研组件。但是脚手架的思路是相同的，沉淀好的东西，形成优秀的二方库，控制和约束三方库以及代码的书写规范。&lt;/p&gt;
+
+&lt;p&gt;下面是脚手架实现的约束内容，有些是通过例子来约束，有些通过内置的组件进行约束。&lt;/p&gt;
+
+&lt;h4 id=&quot;工程划分规范&quot;&gt;工程划分规范&lt;/h4&gt;
+
+&lt;p&gt;比如一个电商系统我们首先去识别各个业务领域，找到各个上下文边界，划分出具体的系统。针对单个系统，我们根据系统职责的不同再进行层次的划分，这种层次的划分可以是通过system、module、package来进行，采用哪种形式，一般与该组织所处于的发展阶段相关，并不拘泥于一种划分标准。该脚手架提供了按功能进行工程创建的模板。按功能划分我们一个小的业务领域一般有如下工程拿一个支付里边的账务领域来说。面向后端我们一般要有一个服务中心，承载的是该工程的后端服务。面向商户我们一般要有一个商家管理端，面向支付公司公司运营我们一般要有一个运营管理端，面向用户我们要有一个门户，面向app我们一般要有一个app端，并且我们一般要有一个网关来对app端提供服务，如果提供一些远程调用的服务，如果接口不放在中心的话，我们还要有一个接口工程。这些工程所提供的功能不同模板不同，就名称而言，以上的工程类似于如下的命名。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;accounting-center  accounting-shop  accounting-man accounting-portal accounting-app accounting-gateway accounting-api&lt;/code&gt;，&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;该规范通过脚手架为不同的功能模块提供快速生成的模板&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;架构分层&quot;&gt;架构分层&lt;/h4&gt;
+
+&lt;p&gt;架构分层是架构领域里边讨论了又讨论的问题，一般都是遵循SOLID原则去分，但是分的形式也有很多，在微服务兴起之后，DDD又被重提并得到了很多应用，无论上战略和战术方面都对行业有一定的影响，其中这微软更是在推广自己容器化的时候提供了一套基于DDD的.net应用程式架构的demo，java领域里完整实施DDD的应用并不多，这里并没有用DDD的分层命名和组织方式，采用了传统的分层架构。不过相信在不断的实践过程中，基于DDD思想一定会创造出更多的优秀框架。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;该规范通过脚手架快速生成符合此规范的分包项目&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;域名使用规范&quot;&gt;域名使用规范&lt;/h4&gt;
+
+&lt;h4 id=&quot;mysql规范&quot;&gt;mysql规范&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-```sql&quot;&gt;/*
+  Mysql 规范
+*/
+
+-- ----------------------------
+-- 库的字符集必须使用utf8
+-- ----------------------------
+CREATE DATABASE test CHARACTER SET utf8;
+USE test;
+
+-- ----------------------------
+-- 有无符号:unsigned必须填；
+-- 主键自增:AUTO_INCREMENT必填;
+-- 表的引擎:ENGINE=Innodb必填;
+-- 自增起值:AUTO_INCREMENT=xx必填;
+-- 表字符集:CHARSET=utf8必填;
+-- 表的注释:COMMENT=&quot;用户表&quot;必填;
+-- 字段注释:COMMENT=&quot;自增id&quot;必填;
+-- ----------------------------
+DROP TABLE IF EXISTS `t_user`;
+CREATE TABLE `t_user`
+(
+  `id`       int(11) unsigned NOT NULL AUTO_INCREMENT COMMENT &apos;自增id&apos;,
+  `name`     varchar(100)     NOT NULL COMMENT &apos;姓名&apos;,
+  `age`      int(11)          NOT NULL COMMENT &apos;年龄&apos;,
+  `addr`     varchar(200) DEFAULT NULL COMMENT &apos;地址&apos;,
+  `created`  datetime         NOT NULL COMMENT &apos;创建时间&apos;,
+  `modified` datetime         NOT NULL COMMENT &apos;修改时间&apos;,
+  PRIMARY KEY (`id`)
+) ENGINE = InnoDB
+  AUTO_INCREMENT = 1
+  DEFAULT CHARSET = utf8 COMMENT = &apos;用户表&apos;;
+
+INSERT INTO t_user (name, age, addr)
+VALUES (&apos;Jack&apos;, 20, &apos;BJ&apos;);
+INSERT INTO t_user (name, age, addr)
+VALUES (&apos;Jones&apos;, 18, &apos;SH&apos;);
+
+-- ----------------------------
+-- 增加字段时COMMENT必须填写
+-- ----------------------------
+ALTER TABLE t_user ADD COLUMN code VARCHAR (20) NULL COMMENT &apos;用户编码&apos;;
+
+-- ----------------------------
+-- 唯一索引用uq_开头;
+-- 索引名称必须以idx开头;
+-- ----------------------------
+ALTER TABLE t_user ADD INDEX uq_name(code) USING BTREE COMMENT &apos;用户编码唯一索引&apos;;
+ALTER TABLE t_user ADD INDEX idx_name(name) USING BTREE COMMENT &apos;用户名称索引&apos;;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;该规范通过脚手架生成项目中的/resources/db/schema.sql提供示例规范&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;组件使用规范&quot;&gt;组件使用规范&lt;/h4&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;基础组件&lt;/th&gt;
+      &lt;th&gt;版本&lt;/th&gt;
+      &lt;th&gt;组件是否可拆卸&lt;/th&gt;
+      &lt;th&gt;版本是否可选择&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;spring-boot&lt;/td&gt;
+      &lt;td&gt;2.1.7.RELEASE&lt;/td&gt;
+      &lt;td&gt;必须选择&lt;/td&gt;
+      &lt;td&gt;可输入版本&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;jdk&lt;/td&gt;
+      &lt;td&gt;1.8&lt;/td&gt;
+      &lt;td&gt;必须选择&lt;/td&gt;
+      &lt;td&gt;可输入版本&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;lombok&lt;/td&gt;
+      &lt;td&gt;1.18.8&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;gson&lt;/td&gt;
+      &lt;td&gt;2.8.5&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;jsf&lt;/td&gt;
+      &lt;td&gt;1.6.9&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;该规范基础组件使用内置的版本，所有组件使用spring生态进行构建，对于开源组件提供了starter的统一使用starter的方式使用，对于没有提供starter的组件统一封装starter进行使用，非基础用户可按需选择&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;日志使用规范&quot;&gt;日志使用规范&lt;/h4&gt;
+&lt;p&gt;应用中不能使用日志系统(Log4j、Logback)中的api，而应该依赖日志框架中slf4j中的API，使用门面模式的日志框架，本工程中默认使用SpringBoot默认使用的方式slf4j+Logback.&lt;/p&gt;
+
+&lt;p&gt;尽量用英文来描述日志错误信息，如果日志中的错误信息用英文描述不清楚的话使用中文描述即可，负责容易产生歧义&lt;/p&gt;
+
+&lt;p&gt;异常信息应该包括两类信息：案发现场信息和异常堆栈信息。如果不处理那么通过关键字throws往上抛出，交给上层处理。例如：&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;log.error(&quot;Transaction accounting faied, transactionId: {}, orderId: {} , case: &quot;, tradeOrderDetailId, orderId, e);&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;谨慎的记录日志。业务系统与中间件的日志记录方式有比较大的差别，中间件一般在认为稳定版本的时候，就不太需要debug和info级别的信息了，或者说这些信息不关键了，业务系统，一般对日志的使用规范要有一个明确的约束，这些约束决定了生产环境中将开启什么样的日志级别。每天的日志量的预估。这里建议生产环境使用info级别的日志，预发环境可以使用debug级别日志。&lt;/p&gt;
+
+&lt;p&gt;dubbo/jsf，一般的远程调用接口，在日志记录的时候，最好统一记录调用者的ip,appId,appName等核心信息方便问题的定位。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;该规范通过脚手架生成项目中的/resources/logback.groovy提供日志的规范，其中使用规范在脚手架中附带的demo例子中对日志的使用规范进行了示例&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;编程规范&quot;&gt;编程规范&lt;/h4&gt;
+
+&lt;p&gt;代码中的命名均不能以下划线或美元符号开始，也不能以下划线或美元符号结束；严禁使用拼音与英文混合的方式，更不允许直接使用中文的方式。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;正确的英文拼写和语法可以让阅读者易于理解，避免歧义。注意，纯拼音命名方式更要避免采用&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;类名使用UpperCamelCase风格，但以下情形例外:DO/BO/DTO/VO/AO / PO / UID 等；方法名、参数名、成员变量、局部变量都统一使用lowerCamelCase风格，必须遵 从驼峰形式；常量命名全部大写，单词间用下划线隔开，力求语义表达完整清楚，不要嫌名字长。&lt;/p&gt;
+
+&lt;p&gt;抽象类命名使用Abstract或Base开头;异常类命名使用Exception结尾;测试类 命名以它要测试的类的名称开始，以 Test 结尾； 类型与中括号相连来标识数组。&lt;/p&gt;
+
+&lt;p&gt;POJO类中布尔类型变量都不要加is前缀，否则部分框架解析会引起序列化错误；包名统一使用小写，点分隔符之间有且仅有一个自然语义的英语单词。包名统一使 用单数形式，但是类名如果有复数含义，类名可以使用复数形式。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;应用工具类包名为 com.alibaba.ai.util、类名为 MessageUtils(此规则参考 spring 的框架结构)&lt;/code&gt;；避免在子父类的成员变量之间、或者不同代码块的局部变量之间采用完全相同的命
+名，使可读性降低。&lt;/p&gt;
+
+&lt;p&gt;杜绝完全不规范的缩写，避免望文不知义；为了达到代码自解释的目标，任何自定义编程元素在命名时，使用尽量完整的单词 组合来表达其意；在常量与变量的命名时，表示类型的名词放在词尾，以提升辨识度；如果模块、接口、类、方法使用了设计模式，在命名时需体现出具体模式。&lt;/p&gt;
+
+&lt;p&gt;接口类中的方法和属性不要加任何修饰符号(public 也不要加)，保持代码的简洁 性，并加上有效的 Javadoc 注释。尽量不要在接口里定义变量，如果一定要定义变量，肯定 是与接口方法相关，并且是整个应用的基础常量。&lt;/p&gt;
+
+&lt;p&gt;接口和实现类的命名有两套规则:对于 Service 和 DAO 类，基于 SOA 的理念，暴露出来的服务一定是接口，内部的实现类用Impl 的后缀与接口区别；如果是形容能力的接口名称，取对应的形容词为接口名(通常是–able 的形容词)&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;该规范引用子阿里巴巴Java开发手册，此手册对内容的定义已经比较完善了，脚手架中示例并没有刻意去实现这些规范，所以只是涉及到了一部分，其他规范可参考此规范作为组织规范的基础&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;获取脚手架&quot;&gt;获取脚手架!!!&lt;/h4&gt;
+
+&lt;p&gt;现在基于以上的原则，我们提供了一个开箱即用的工程，参考本文档你仅仅需要几步就可以生成一个开箱即用的工程，并且提供了多种工程模板，api工程、rest风格的工程、center工程。脚手架的命名命名为unionstars，是联合众星的意思，也是希望将好的思想沉淀在脚手架中。工程里对应的原则在脚手架中尽可能的涉及，但是并不刻意去做这件事情，脚手架的核心宗旨不会变化。&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;用unionstars！几行命名，秒级进入coding状态！&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;安装 Node.js&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;First you must setup &lt;a href=&quot;https://www.runoob.com/nodejs/nodejs-install-setup.html&quot;&gt;Node.js&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;安装 Yeoman&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ npm install -g yo
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;安装 generator-unionstars&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ npm install -g generator-unionstars
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;初始化一个开箱即用的后端服务中心工程&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ yo unionstars
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;&lt;em&gt;The interactive CLI menu will guide the way.&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;初始化一个接口工程(Jsf)&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ yo unionstars:api
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;初始化一个前端网关工程(Rest)&lt;/strong&gt;&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ yo unionstars:gateway
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;todo&quot;&gt;TODO&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;shop端模板工程提供;&lt;/li&gt;
+  &lt;li&gt;man端模板工程提供;&lt;/li&gt;
+  &lt;li&gt;portal模板工程提供;&lt;/li&gt;
+  &lt;li&gt;app模板工程提供;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;license&quot;&gt;License&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&quot;http://en.wikipedia.org/wiki/MIT_License&quot;&gt;MIT License&lt;/a&gt;&lt;/p&gt;
+
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/tool/generator_unionstars/</link>
+        <guid isPermaLink="true">http://localhost:4000/tool/generator_unionstars/</guid>
+        
+        <category>archtecture</category>
+        
+        <category>refactoring</category>
+        
+        <category>tool</category>
+        
+        
+        <category>tool</category>
+        
+      </item>
+    
+      <item>
+        <title>Mysql 死锁问题分析</title>
+        <description>&lt;h4 id=&quot;背景介绍&quot;&gt;背景介绍&lt;/h4&gt;
+&lt;p&gt;我们在进行互联网应用开发的时候，高并发场景下，很容易遇到死锁的问题，我们从jdbc抛出的死锁异常中，很难看出死锁发生的具体原因，jdbc只是给了一个死锁异常，
+但是并没有抛出导致死锁的原因，这是因为mysql本身，发生死锁的时候就没有抛出更多的错误信息。MySQL/InnoDB的加锁分析，对应用开发来说也是比较复杂的，因为
+锁这一块的复杂性，很多关于数据库锁的文章，并没有实际的验证，而是似是而非猜测性的，有一些误导。这里是对一个insert和update同一索引数据导致的死锁案例的
+分析过程，主要是描述一个解决问题的思路，供大家参考。&lt;/p&gt;
+
+&lt;h4 id=&quot;发现问题&quot;&gt;发现问题&lt;/h4&gt;
+&lt;p&gt;X同学在生产上发现了如下的死锁异常，想让我一起排查下，登陆服务器后，看到了类似如下的异常信息：&lt;/p&gt;
+
+&lt;div class=&quot;language-sql highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;err&quot;&gt;在分库&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:[&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;worker_10&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;~~&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;jdbc&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;mysql&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;//&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;hostname&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3306&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;/&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dbname&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;user&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;user&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
+&lt;span class=&quot;err&quot;&gt;执行&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;SQL&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:[&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;UPDATE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tablename&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;SET&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;col1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;col1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;  &lt;span class=&quot;n&quot;&gt;modified_date&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NOW&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;WHERE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;xxx&apos;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; 
+&lt;span class=&quot;err&quot;&gt;发生异常&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Deadlock&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;found&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;when&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;trying&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;get&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;restarting&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;transaction&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; 
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;排查问题&quot;&gt;排查问题&lt;/h4&gt;
+
+&lt;p&gt;我们从日志上看，看不出死锁发生的具体原因，我翻看了发生异常堆栈的代码，类似于我之前做的一个订单台账的死锁问题，因为上次排查的时候，就参阅了不少资料，
+有些资料也有一定的误导性，借此我把这次死锁原因复现一下，通过实际的操作来分析一下死锁的原因，并分析一下，如何解决此场景的死锁问题。&lt;/p&gt;
+
+&lt;p&gt;我们可以通过show engine innodb status，来查看死锁的日志，看看是否可以看出，是执行哪几个SQL引起的，以下是我找dba拿出的日志，我做了一下脱敏。&lt;/p&gt;
+
+&lt;div class=&quot;language-sql highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;mi&quot;&gt;2019&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;07&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;18&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;03&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;03&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;7&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;f16ff826700&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;***&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;46497170213&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ACTIVE&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sec&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;starting&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;index&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;read&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;mysql&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tables&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;locked&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;LOCK&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;WAIT&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;struct&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;s&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;heap&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;size&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1184&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;row&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;s&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;MySQL&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thread&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;118471353&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;OS&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thread&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;handle&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x7f1c2fe77700&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;query&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;146140919609&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;240&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;24&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;25&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dbname&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;updating&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;UPDATE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tablename&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;SET&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;col1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;col1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;  &lt;span class=&quot;n&quot;&gt;modified_date&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NOW&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;WHERE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;xxx&apos;&lt;/span&gt; 
+&lt;span class=&quot;o&quot;&gt;***&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;WAITING&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;FOR&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;THIS&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;LOCK&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;TO&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;GRANTED&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;RECORD&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LOCKS&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;space&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2632&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;page&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;no&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5065&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bits&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;440&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;index&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`uniq_table_name_col1`&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;of&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;table&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`tablename`&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;trx&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;46497170213&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lock_mode&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;X&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;locks&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;rec&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;but&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;not&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gap&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;waiting&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;Record&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;heap&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;no&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;374&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;***&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;46497170214&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ACTIVE&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sec&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;starting&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;index&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thread&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;declared&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;inside&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;InnoDB&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5000&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;mysql&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tables&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;locked&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;struct&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;s&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;heap&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;size&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1184&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;row&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;s&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;MySQL&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thread&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;118465375&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;OS&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thread&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;handle&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x7f16ff826700&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;query&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;146140919617&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;172&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;25&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;213&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;222&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dbname&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;updating&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;UPDATE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tablename&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;SET&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;col1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;col1&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;30&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;  &lt;span class=&quot;n&quot;&gt;modified_date&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NOW&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;WHERE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;xxx&apos;&lt;/span&gt; 
+&lt;span class=&quot;o&quot;&gt;***&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;HOLDS&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;THE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;LOCK&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;S&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;RECORD&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LOCKS&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;space&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2632&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;page&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;no&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5065&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bits&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;440&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;index&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`uniq_table_name_col1`&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;of&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;table&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`tablename`&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;trx&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;46497170214&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mode&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;S&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;rec&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;but&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;not&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gap&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;Record&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;heap&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;no&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;374&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;***&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;WAITING&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;FOR&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;THIS&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;LOCK&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;TO&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;GRANTED&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;RECORD&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LOCKS&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;space&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2632&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;page&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;no&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5065&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bits&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;440&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;index&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`uniq_table_name_col1`&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;of&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;table&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`tablename`&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;trx&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;id&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;46497170214&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lock_mode&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;X&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;locks&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;rec&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;but&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;not&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gap&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;waiting&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;Record&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;heap&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;no&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;374&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;***&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;WE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ROLL&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BACK&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;解读死锁日志&quot;&gt;解读死锁日志&lt;/h4&gt;
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-07-26-mysql_local_in_action/20190725100725364_422396275.png?style=centerme&quot; alt=&quot;死锁日志解读&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;我们先来看读一下这个死锁日志，主要关注上边红色的内容，读完之后，是不是发现死锁的日志不全？TRANSACTION2中持有的S锁（lock mode S），这里我们看不出是谁添加的。
+这也是死锁分析难的一个原因， 这个时候我们需要回到业务上,了解整个事务的逻辑。虽然我们没有获取到解决死锁的全部信息，不过它仍然给了我们很有用的信息，
+我们定位到了是哪两条SQL引起的死锁，并在事务2中看到了一个S锁，这个地方可以看一下执行SQL的程序，尤其关注一下S锁是怎么添加的。经过排查，我发现程序中有行代码是这么写的：&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;xxxService&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;insert&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;catch&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;DuplicateKeyException&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;duplicateKeyException&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;xxxService&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;updateXxByIdx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;已有的知识&quot;&gt;已有的知识&lt;/h4&gt;
+
+&lt;p&gt;又是insert问题导致的死锁？&lt;/p&gt;
+
+&lt;p&gt;我们先看一下mysql官方给出的insert导致死锁的案例，然后继续分析一下，这个地方可能导致的死锁问题，之前解决过类似的场景，可以参考这个 &lt;a href=&quot;https://dev.mysql.com/doc/refman/5.6/en/innodb-locks-set.html&quot;&gt;insert死锁&lt;/a&gt;。&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;If a duplicate-key error occurs, a shared lock on the duplicate index record is set. This use of a shared lock can result in deadlock should there be multiple sessions trying to insert the same row if another session already has an exclusive lock. Suppose that an InnoDB table t1 has the following structure:&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;大概解释一下这句话，当发生duplicate-key错误的时候，会对索引记录加S锁。当有一个session持有了X锁，然后又有多个session同时去插入相同行的时候可能会导致死锁， 我们来看一下这个案例：&lt;/p&gt;
+
+&lt;div class=&quot;language-sql highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;-- table structure&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;CREATE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;TABLE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;t1&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;INT&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;PRIMARY&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;KEY&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ENGINE&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;InnoDB&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- Session 1:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;START&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;INSERT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;INTO&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;t1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;VALUES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- Session 2:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;START&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;INSERT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;INTO&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;t1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;VALUES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- Session 3:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;START&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;TRANSACTION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;INSERT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;INTO&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;t1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;VALUES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- Session 1:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;ROLLBACK&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;The first operation by session 1 acquires an exclusive lock for the row. The operations by sessions 2 and 3 both result in a duplicate-key error and they both request a shared lock for the row. When session 1 rolls back, it releases its exclusive lock on the row and the queued shared lock requests for sessions 2 and 3 are granted. At this point, sessions 2 and 3 deadlock: Neither can acquire an exclusive lock for the row because of the shared lock held by the other.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;解释一下这句话： session1拿到了X锁，session2和session3发生duplicate-key错的时候，同时去请求S锁。当session1回滚，它释放X锁，此时session2和session3同时获得S锁，并同时去请求X锁。引起了死锁。我们看一下这个持有和竞争的关系：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-07-26-mysql_local_in_action/20190725123235910_1658579667.png?style=centerme&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这个地方是核心要理解锁的一个互斥和共存的关系，我们看一下这个关系：&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt; &lt;/th&gt;
+      &lt;th&gt;S&lt;/th&gt;
+      &lt;th&gt;X&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;S&lt;/td&gt;
+      &lt;td&gt;不冲突&lt;/td&gt;
+      &lt;td&gt;冲突&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;X&lt;/td&gt;
+      &lt;td&gt;冲突&lt;/td&gt;
+      &lt;td&gt;冲突&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;因为X和S锁是互斥的，session2想要X锁，必须等待session3的S锁释放， session3想要获得X锁也要session2释放S锁，这个时候构成了环路等待，引起了死锁。&lt;/p&gt;
+
+&lt;h4 id=&quot;回到我们案例&quot;&gt;回到我们案例&lt;/h4&gt;
+
+&lt;p&gt;很明显我们的案例，不是单纯的insert引起的，不过思考一下，这个地方存在同样的问题，session2和session3如果发生duplicate-key错的时候，同时去请求S锁。然后去执行update这条数据的时候，update需要
+加X锁，当他们请求X锁的时候，需要对方释放S锁，这个时候构成了环路等待，引起了死锁。我们来模拟一下这个场景, 这个地方，我们假设数据已经存在了，上边语句的表名，我脱敏了主要是因为是线上信息，接下来，
+我就直接创建一份测试数据去模拟了：&lt;/p&gt;
+
+&lt;div class=&quot;language-sql highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;-- table structure&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;CREATE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;TABLE&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`tablename`&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`id`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bigint&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NOT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NULL&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AUTO_INCREMENT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;主键id&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`col1`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;varchar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;32&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NULL&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;订单号&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`out_money`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bigint&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;0&apos;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;转出金额&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`in_money`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bigint&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;0&apos;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;转入金额&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`created_date`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;datetime&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NOT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NULL&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;创建时间&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`modified_date`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;timestamp&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NOT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NULL&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;CURRENT_TIMESTAMP&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;ON&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;UPDATE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;CURRENT_TIMESTAMP&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;最后修改时间&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`mer_date`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;varchar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COLLATE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;utf8_bin&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;NULL&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;时间切分键&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`in_settle_money`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bigint&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;0&apos;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;结算转入金额&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nv&quot;&gt;`out_settle_money`&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bigint&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;0&apos;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&apos;结算转出金额&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;PRIMARY&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;KEY&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;`id`&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;UNIQUE&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;KEY&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;`uniq_order_account_3413`&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;`order_id`&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ENGINE&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;InnoDB&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AUTO_INCREMENT&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;220016&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;DEFAULT&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;CHARSET&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;utf8&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COLLATE&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;utf8_bin&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;COMMENT&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&apos;订单金额表&apos;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 1&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;insert&lt;/span&gt;  &lt;span class=&quot;k&quot;&gt;into&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;values&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;200014&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;now&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;now&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20180101&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 2&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;insert&lt;/span&gt;  &lt;span class=&quot;k&quot;&gt;into&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;values&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;200014&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;now&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;now&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20180101&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 1&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;update&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;set&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 2&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;update&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;set&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 2&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;ERROR&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1213&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;40001&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Deadlock&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;found&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;when&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;trying&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;get&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;restarting&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;transaction&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;~~~~&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;h4 id=&quot;问题真的只是这样么&quot;&gt;问题真的只是这样么？&lt;/h4&gt;
+
+&lt;p&gt;回来再看一下这个代码：&lt;/p&gt;
+
+&lt;div class=&quot;language-java highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xxxService&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;getXxByIdx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;XX&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!=&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;xxxService&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;insert&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;catch&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nc&quot;&gt;DuplicateKeyException&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;duplicateKeyException&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;xxxService&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;updateXxByIdx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;xxxService&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;updateXxByIdx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;假设程序的执行状态是这样呢？ 会不会存在问题？ 线程1经过1和2到达3，线程2经过1到达2.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/images/pictures/2019-07-26-mysql_local_in_action/20190725145431560_396427721.png?style=centerme&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;我们模拟一下这个场景：&lt;/p&gt;
+
+&lt;div class=&quot;language-sql highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;-- transaction 1&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;insert&lt;/span&gt;  &lt;span class=&quot;k&quot;&gt;into&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;values&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;200014&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;now&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;now&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20180101&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 2&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;update&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;set&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 1&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;update&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_account_info_3413&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;set&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in_money&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;order_id&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+
+&lt;span class=&quot;c1&quot;&gt;-- transaction 2&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;ERROR&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1213&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;40001&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Deadlock&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;found&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;when&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;trying&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;get&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;try&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;restarting&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;transaction&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;~~~~&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;why&quot;&gt;why？&lt;/h2&gt;
+
+&lt;p&gt;晕了，分析一下这个过程吧&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;time&lt;/th&gt;
+      &lt;th&gt;session 1&lt;/th&gt;
+      &lt;th&gt;session2&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1&lt;/td&gt;
+      &lt;td&gt;begin;&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;2&lt;/td&gt;
+      &lt;td&gt;insert  into order_account_info_3413 values(200014,2000,0,0,now(),now(),20180101,0,0);唯一索引冲突，对唯一索引加S锁&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;3&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt;begin;&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;4&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt;update order_account_info_3413 set in_money= in_money + 1 where order_id = 2000;  加X锁，等待session1的S锁&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;5&lt;/td&gt;
+      &lt;td&gt;update order_account_info_3413 set in_money= in_money - 1 where order_id = 2000;这个地方应该做了死锁检查，认为死锁，然后把session2回滚了&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;6&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt;ERROR 1213 (40001): Deadlock found when trying to get lock; try restarting transaction~~~~&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;这个地方不太明白，死锁检查的时候，为什么判定是死锁了，猜一下吧，因为session2先进入了等待X锁的队列，但是他需要session1的S锁，session1需要拿X锁，但是因为session2线进入了等待X锁的队列，所以它需要等待session2 拿到X锁后释放S锁。好像可以说通！&lt;/p&gt;
+
+&lt;h4 id=&quot;验证一下&quot;&gt;验证一下&lt;/h4&gt;
+
+&lt;p&gt;如果还是不太理解这个地方可以debug一下mysql的执行，核心就是死锁检测的地方，他是怎样认为存在死锁，并对session2进行回滚的，我们可以下载mysql的源码，进行编译和调试，核心找到Innodb中检测与处理死锁的代码入口：
+我们发现，死锁检测函数是storage/innobase/lock/lock0lock.c的lock_deadlock_occurs函数，这个函数调用了lock_deadlock_recursive函数迭代地检查死锁：&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;static&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;ulint&lt;/span&gt;
+&lt;span class=&quot;nf&quot;&gt;lock_deadlock_recursive&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+&lt;span class=&quot;cm&quot;&gt;/*====================*/&lt;/span&gt;
+	&lt;span class=&quot;n&quot;&gt;trx_t&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;	&lt;span class=&quot;n&quot;&gt;start&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;		&lt;span class=&quot;cm&quot;&gt;/*!&amp;lt; in: recursion starting point */&lt;/span&gt;
+	&lt;span class=&quot;n&quot;&gt;trx_t&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;	&lt;span class=&quot;n&quot;&gt;trx&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;		&lt;span class=&quot;cm&quot;&gt;/*!&amp;lt; in: a transaction waiting for a lock */&lt;/span&gt;
+	&lt;span class=&quot;n&quot;&gt;lock_t&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;	&lt;span class=&quot;n&quot;&gt;wait_lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;	&lt;span class=&quot;cm&quot;&gt;/*!&amp;lt; in:  lock that is waiting to be granted */&lt;/span&gt;
+	&lt;span class=&quot;n&quot;&gt;ulint&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;	&lt;span class=&quot;n&quot;&gt;cost&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;		&lt;span class=&quot;cm&quot;&gt;/*!&amp;lt; in/out: number of calculation steps thus
+				far: if this exceeds LOCK_MAX_N_STEPS_...
+				we return LOCK_EXCEED_MAX_DEPTH */&lt;/span&gt;
+	&lt;span class=&quot;n&quot;&gt;ulint&lt;/span&gt;	&lt;span class=&quot;n&quot;&gt;depth&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;		&lt;span class=&quot;cm&quot;&gt;/*!&amp;lt; in: recursion depth: if this exceeds
+				LOCK_MAX_DEPTH_IN_DEADLOCK_CHECK, we
+				return LOCK_EXCEED_MAX_DEPTH */&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;lock_deadlock_recursive是迭代的主函数。 start为初始事务, wait_lock为待判断锁， cost和depth为累积的消耗和迭代深度。&lt;/p&gt;
+
+&lt;p&gt;里边有一个非常重要的死锁检测逻辑，当事务尝试获取（请求）加一个锁，并且需要等待时，innodb会开始进行死锁检测。&lt;/p&gt;
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;	&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lock_has_to_wait&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;wait_lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+			&lt;span class=&quot;n&quot;&gt;ibool&lt;/span&gt;	&lt;span class=&quot;n&quot;&gt;too_far&lt;/span&gt;
+				&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;depth&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LOCK_MAX_DEPTH_IN_DEADLOCK_CHECK&lt;/span&gt;
+				&lt;span class=&quot;o&quot;&gt;||&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cost&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LOCK_MAX_N_STEPS_IN_DEADLOCK_CHECK&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+			&lt;span class=&quot;n&quot;&gt;lock_trx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lock&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;trx&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+			&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lock_trx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;start&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+
+				&lt;span class=&quot;cm&quot;&gt;/* We came back to the recursion starting
+				point: a deadlock detected; or we have
+				searched the waits-for graph too long */&lt;/span&gt;
+			&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+		&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;我们发现当函数第二次递归的时候，lock_trx 等于 start，成环死锁产生。要不再精进一下？我们分析一下，这两次递归都干了什么？这个问题我和&lt;a href=&quot;https://mp.weixin.qq.com/s/9GhchWWsUqNvN6-bWL-olA&quot;&gt;挖坑的张师傅&lt;/a&gt;
+一起探讨过，他把debug的思路写了下来，是个不错的参考。&lt;/p&gt;
+
+&lt;h4 id=&quot;怎么解决&quot;&gt;怎么解决？&lt;/h4&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;第一种方案：&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;insert  into order_account_info_3413 values(200014,2000,0,0,now(),now(),20180101,0,0) on duplicate key update in_money= in_money + 1;&lt;/code&gt;？&lt;/li&gt;
+  &lt;li&gt;第二种方案：分布式锁?&lt;/li&gt;
+  &lt;li&gt;第三种方案：insert 发生duplicate-key不执行更新了直接抛异常重新走一下？&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;第一种解决方案，&lt;a href=&quot;https://juejin.im/user/57e4a4e80e3dd9005809b6fb&quot;&gt;咖啡拿铁&lt;/a&gt;在文中说依然存在死锁问题，我在RC和RR的隔离级别下没有重现这个异常。暂且认为这种方式是可用的，
+这种方式的优点是mysql就提供了这种保护机制，不用通过程序去保护，缺点就是把这个责任交给了mysql，一般来说，数据库资源更宝贵一些，而且这种写法也有人反馈有一定的问题，尤其是存在多个唯一索引的时候。
+所以在使用的时候，需要一定的压测，或者对mysql更系统的学习。&lt;/p&gt;
+
+&lt;p&gt;第二种方案，分布式锁是一个比较简单的方案，把并行化修改为串行化进入，效率也不会太差，一般在互联网应用中，其实还是比较常见的方式，缺点就是引入了新的组件，这个地方还有一个缺
+点就是，如果这是一个对外的接口，这个地方还需要考虑接口的幂等以及可用率，这里超出了本文的讨论范围。&lt;/p&gt;
+
+&lt;p&gt;第三种方案，依赖于重试策略，这种方式简单，但是如果是对外接口的话，依然要考虑接口可用率的问题。&lt;/p&gt;
+
+&lt;p&gt;技术上没有绝对的最佳实践，最佳实践都是基于业务场景去考虑，这里可以基于自己的业务场景去选择和考虑更好的解决方案。&lt;/p&gt;
+
+&lt;h4 id=&quot;总结&quot;&gt;总结&lt;/h4&gt;
+&lt;p&gt;以上的实践都在RC事务隔离级别下完成，互联网的解决方案多是碎片化的，作为我们要学会甄别信息的准确性，并进行一定的尝试和实验。尽量对官方的文档进行系统的学习，网络上的文章作为
+理解的辅助参考。然后慢慢形成自己的知识体系。&lt;/p&gt;
+
+&lt;p&gt;本文中还参考了如下内容：&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://dev.mysql.com/doc/refman/5.6/en/innodb-deadlocks.html&quot;&gt;mysql官方手册&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;http://hedengcheng.com/?p=771&quot;&gt;何登成的技术博客&lt;/a&gt;&lt;/p&gt;
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/mysql/mysql_lock_in_action/</link>
+        <guid isPermaLink="true">http://localhost:4000/mysql/mysql_lock_in_action/</guid>
+        
+        <category>deadlock</category>
+        
+        <category>mysql</category>
+        
+        <category>database</category>
+        
+        
+        <category>mysql</category>
+        
+      </item>
+    
+      <item>
+        <title>支付系统-账务</title>
+        <description>&lt;h4 id=&quot;前置学习&quot;&gt;前置学习&lt;/h4&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;在开发和维护账务系统前，务必请学习以下会计基础知识。&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;会计主体&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;定义：会计工作为之服务的特定单位或组织 ，又称会计个体或会计实体 。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;分类：&lt;/code&gt;&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;名称&lt;/th&gt;
+      &lt;th&gt;解释&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;资产&lt;/td&gt;
+      &lt;td&gt;是指过去的交易 、事项形成并由企业拥有或控制的资源 ，该资源预期会给企业带来经济利益 。&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;负债&lt;/td&gt;
+      &lt;td&gt;是指过去的交易或事项形成的现时义务 ，履行该义务预期会导致经济利益流出企业 。&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;所有者权益&lt;/td&gt;
+      &lt;td&gt;是指所有者在企业资产中享有的经济利益 ，其金额为资产减去负债后的余额 。&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;&lt;strong&gt;账户&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;定义：根据所设置的会计科目开设具有一定结构 、能够记录经济业务内容的增减变动情况及其结果。&lt;/p&gt;
+
+&lt;p&gt;组成：账户的名称和账户的方向，账户方向即资产、负债或所有者权益。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;帐套&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;定义：记载一个独立核算的经济实体的所有往来信息的一整套记录表和统计分析报表统称为一个帐套。&lt;/p&gt;
+
+&lt;p&gt;说明：帐套间独立核算、互不影响（建立、删除或修改一个帐套中的数据，不会对其他帐套有任何影响），例如人民币账套、小金库账套。&lt;/p&gt;
+
+&lt;p&gt;定义：记载一个独立核算的经济实体的所有往来信息的一整套记录表和统计分析报表统称为一个帐套。&lt;/p&gt;
+
+&lt;p&gt;说明：帐套间独立核算、互不影响（建立、删除或修改一个帐套中的数据，不会对其他帐套有任何影响），例如人民币账套、小金库账套。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;会计凭证&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;定义：会计凭证是记录经济业务 ，明确经济责任的书面证明 ，是登记会计账簿的依据 。&lt;/p&gt;
+
+&lt;p&gt;原始凭证-俗称单据，是在经济业务发生或完成时取得或填制的，用以记录、证明经济业务已经发生或完成的书面证据，是进行会计核算的原始依据。&lt;/p&gt;
+
+&lt;p&gt;记账凭证-是会计人员根据审核后的原始凭证的经济内容确定会计分录而编制的一种凭证，是直接登账的依据。&lt;/p&gt;
+
+&lt;p&gt;会计分录-是表明记账凭证中应借应贷的账户与金额，是记账凭证的最简化形式。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;复式记帐法&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;定义：所谓复式记账法 ，就是对于每一项经济业务 ，都要以相等的金额同时在两个或两个以上的账户中相互联系地进行登记的一种记账方法 。&lt;/p&gt;
+
+&lt;p&gt;说明：&lt;/p&gt;
+
+&lt;p&gt;必须至少有两个账户
+必须同时在不同账户上记录
+有记录借的账户，必然有记录贷的账户&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;账户余额方向&lt;/strong&gt;&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;账户类型&lt;/th&gt;
+      &lt;th&gt;借方&lt;/th&gt;
+      &lt;th&gt;贷方&lt;/th&gt;
+      &lt;th&gt;备注&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;资产类账户&lt;/td&gt;
+      &lt;td&gt;+&lt;/td&gt;
+      &lt;td&gt;-&lt;/td&gt;
+      &lt;td&gt;坏帐准备等抵减科目相反&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;负债类账户&lt;/td&gt;
+      &lt;td&gt;-&lt;/td&gt;
+      &lt;td&gt;+&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;所有者权益类账户&lt;/td&gt;
+      &lt;td&gt;-&lt;/td&gt;
+      &lt;td&gt;+&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;成本类类账户&lt;/td&gt;
+      &lt;td&gt;+&lt;/td&gt;
+      &lt;td&gt;-&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;收入类账户&lt;/td&gt;
+      &lt;td&gt;-&lt;/td&gt;
+      &lt;td&gt;+&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;费用类账户&lt;/td&gt;
+      &lt;td&gt;+&lt;/td&gt;
+      &lt;td&gt;-&lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h4 id=&quot;系统概述&quot;&gt;系统概述&lt;/h4&gt;
+
+&lt;p&gt;账务系统做为支付系统的基础设施之一，为前方的各交易提供底层支撑。所有的支付业务最终都会操作到账户，账务系统即为这些业务提供账户余额变动的记录，流水明细的记录，记账凭证的生成等，使每一笔交易都有迹可寻。&lt;/p&gt;
+
+&lt;p&gt;从会员感观的角度，账户是会员能从网银钱包个人站能看到的虚拟账户，会员能直接读取此虚拟账户目前的资金构成及资金变动记录。&lt;/p&gt;
+
+&lt;p&gt;账务系统提供了开户、账户基本信息查询（包括查询余额、账户状态等），账户流水查询等功能接口；&lt;/p&gt;
+
+&lt;p&gt;从交易层面，账务系统提供了入款、出款、转账、资金冻结解冻等接口；&lt;/p&gt;
+
+&lt;p&gt;从账户管理层面，提供了账户的冻结解冻接口（针对账户本身，而非账户的部分资金的冻结解冻）&lt;/p&gt;
+
+&lt;h4 id=&quot;用户用例&quot;&gt;用户用例&lt;/h4&gt;
+
+&lt;p&gt;用户：所有业务的正常发起流程，如充值申请、提现申请、转账申请、小金库转入申请、小金库转出申请等，均视为用户调用。&lt;/p&gt;
+
+&lt;p&gt;系统：包括业务的异常或分支流程（如充值补单、提现失败退票、转账的被收款方、小金库转入失败退回余额等）、后台及风控发起的指令（如CCMIS后台、风控后台、风控反洗钱系统的异步通知等），均视为系统调用。&lt;/p&gt;
+
+&lt;h4 id=&quot;名词解释&quot;&gt;名词解释&lt;/h4&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;账户信息：&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;账户是账务系统的基本单位，账户的基本属性包括资金构成、账户状态等。&lt;/p&gt;
+
+&lt;p&gt;在进行任何资金相关的业务操作前，必须先在账务系统开户。在三代账户系统中，账户必隶属于会员，而一个会员可以有多个类型的账户，最常用的为基本户，若有基金业务操作，还可开通基金户等。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;账户号构成规则：&lt;/code&gt;
+账户号（24位） =  会员号（18位） + [2位账套编号] + [4位账户子类别]&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;账套号：&lt;/code&gt;
+00 人民币支付账套
+01 人民币理财账套&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;账户子类型：&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;| 会员类型                               | 账户子类型              | 名词解释                                                                                                                                                                                         |
+| ————————————– | ———————– | ———————————————————————————————————————————————————————————————— |
+| 00个人会员账户                         | 0001基本账户            | 个人的基本账户，用于充提转和消费                                                                                                                                                                 |
+| 00个人会员账户                         | 0003理财账户            | 理财户作为一个中间通道，个人使用理财产品时，无论是关于小金库，还是基金，都会通过理财账户透传，例如小金库账户的出款入款都需要透传理财户，目的是作为唯一中间通道起到监控和记录流水等统计数据的作用 |
+| 00个人会员账户                         | 0009小金库专户          | 转入可以使用银行卡或者个人基本账户；可以转出到个人基本户，也可以直接转出到银行账户。用户将钱存入小金库获取较高的收益。若个人用户购买基金可以使用小金库的余额购买，而不能使用基本户的余额购买。   |
+| 08公司会员账户                         | 0801基本账户            | 企业的基本账户，用于充提转和消费                                                                                                                                                                 |
+| 08公司会员账户                         | 0803理财账户            | 理财户作为一个中间通道，企业使用理财产品时，无论是关于小金库，还是基金，都会通过理财账户透传，例如小金库账户的出款入款都需要透传理财户，目的是作为唯一中间通道起到监控和统计数据的作用           |
+| 08公司会员账户                         | 0805保证金户            | 预留                                                                                                                                                                                             |
+| 08公司会员账户                         | 0807押金账户            | 预留                                                                                                                                                                                             |
+| 08公司会员账户                         | 0808欠款账户            | 小金库对应了两家基金公司，个人用户在从小金库转出到基本户时，公司先垫资到个人用户的基本户（因为他可能立即提现），所以企业的欠款需要一个账户来记录就是欠款账户。                                   |
+| 80银行类内部账户                       | 8000备付金银行存款      | 对应公司在银行的账户，公司事先在银行存入准备金，待以后支付使用，而公司必须有一个账户来记录相关信息就是备付金账户                                                                                 |
+| 80银行类内部账户                       | 8001银行应付账户        | 公司应该在银行卡中扣减一笔款项，而这笔金额就记录在银行应付账户中                                                                                                                                 |
+| 80银行类内部账户                       | 8002银行应收账户        | 公司应该在银行卡中增加一笔收入，而这笔收入就记录在银行应收账户中                                                                                                                                 |
+| 80银行类内部账户                       | 8003银行实收账户        | 记录银行实际收入的账户                                                                                                                                                                           |
+| 80银行类内部账户                       | 8004银行实付账户        | 记录银行实际支付的账户                                                                                                                                                                           |
+| 80银行类内部账户                       | 8005银行收入待查        | 预留                                                                                                                                                                                             |
+| 80银行类内部账户                       | 8006银行支出待查        | 预留                                                                                                                                                                                             |
+| 80银行类内部账户                       | 8010自有资金银行往来    | 预留                                                                                                                                                                                             |
+| 88共同类内部账户（360880000000000005） | 8801收单待清算          | （下面一系列&apos;待&apos;账户作为中间过渡账户，发生在记账过程中）                                                                                                                                 |
+| 88共同类内部账户（360880000000000005） | 8803付款待处理          | 公司需要支付的款项，不是立刻支付，而是一般两小时内支付                                                                                                                                           |
+| 88共同类内部账户（360880000000000005） | 8805退款待处理          |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8807付款待核对          |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8809退款待核对          |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8811拒付应付款          |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8813担保应付款          |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8815银行收入待查        |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8800充值待核对          |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8802收单支付待核对      |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8804付款退票待核对      |                                                                                                                                                                                                  |
+| 88共同类内部账户（360880000000000005） | 8816银行支出待查        |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8850 收单交易手续费收入 | （下面一系列手续费、利息等相关账户）                                                                                                                                                             |
+| 88损益类内部账户（360880000000000005） | 8852会员充值手续费收入  |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8854会员转账手续费收入  |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8856会员提现手续费收入  |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8858代付手续费收入      |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8859代付手续费支出      |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8860备付金户利息收入    |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8862自有户利息收入      |                                                                                                                                                                                                  |
+| 88损益类内部账户（360880000000000005） | 8864账户管理费支出      |                                                                                                                                                                                                  |
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;账户与资金渠道：&lt;/code&gt;
+机构编码(fundChannelCode)和机构商户号 (instMerchantId)和会员一一对应。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;五个资金渠道关联账户：&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;8000，银行备付金存款&lt;/p&gt;
+
+&lt;p&gt;8001，银行交易应付账户&lt;/p&gt;
+
+&lt;p&gt;8002，银行交易应收账户&lt;/p&gt;
+
+&lt;p&gt;8003，银行资金应付账户&lt;/p&gt;
+
+&lt;p&gt;8004，银行资金应收账户&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;账户资金：&lt;/code&gt;
+账户总金额为账户的余额，冻结金额为账户余额中的不可用部分，充值风险金为兼容老账务系统中账户余额中充值入款的部分，账户金额构成见下图 。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;资金分为四种：&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;总余额：用户拥有的所有余额。
+冻结余额：因业务需要冻结掉的余额
+风险余额：目前特指充值风险金，不可用于提现出款操作。
+可用余额：总余额-冻结余额-风险余额
+     可用余额 = 总余额 – 冻结余额 – 风险余额
+     一般前端显示的金额为可用余额。&lt;/p&gt;
+
+&lt;h4 id=&quot;账户状态&quot;&gt;账户状态&lt;/h4&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;账户有三种状态：冻结、正常、关闭。
+ 冻结状态的账户不能进行客户层面或系统层面的入款或出款操作。
+ 关闭状态的账户不能进行任何资金出入操作。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;四种冻结标记（禁止客户发起的入款、禁止客户发起的出款、禁止系统发起的出款、禁止系统发起的入款），发起冻结时需指定冻结模式为上述四种之一，或上述四种的部分组合模式。
+ 其中规则如下：系统级别的操作大于客户级别的操作。即，当禁止了系统级别的出/入款操作，必须禁止客户级别的出/入款操作。
+ 下表中黄色高亮部分的组合模式均不允许发起。&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;冻结模式&lt;/th&gt;
+      &lt;th&gt;对应的状态&lt;/th&gt;
+      &lt;th&gt;客户发起的入款1&lt;/th&gt;
+      &lt;th&gt;客户发起的出款2&lt;/th&gt;
+      &lt;th&gt;系统发起的出款4&lt;/th&gt;
+      &lt;th&gt;系统发起的入款8&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0001&lt;/td&gt;
+      &lt;td&gt;1&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0010&lt;/td&gt;
+      &lt;td&gt;2&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0011&lt;/td&gt;
+      &lt;td&gt;3&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0100&lt;/td&gt;
+      &lt;td&gt;4&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0101&lt;/td&gt;
+      &lt;td&gt;5&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0110&lt;/td&gt;
+      &lt;td&gt;6&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0111&lt;/td&gt;
+      &lt;td&gt;7&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1000&lt;/td&gt;
+      &lt;td&gt;8&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1001&lt;/td&gt;
+      &lt;td&gt;9&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1010&lt;/td&gt;
+      &lt;td&gt;10&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1011&lt;/td&gt;
+      &lt;td&gt;11&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1100&lt;/td&gt;
+      &lt;td&gt;12&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1101&lt;/td&gt;
+      &lt;td&gt;13&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1110&lt;/td&gt;
+      &lt;td&gt;14&lt;/td&gt;
+      &lt;td&gt;允许&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;1111&lt;/td&gt;
+      &lt;td&gt;15&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+      &lt;td&gt;禁止&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;冻结：只能针对非关闭状态的账户进行此操作，且需指明冻结模式为上表中的八种组合模式之一。对账户发起冻结请求后，将账户状态位改为冻结，计算账户已有的冻结模式与传入的操作后的结果，将此结果记录在账户的冻结模式位；&lt;/p&gt;
+
+&lt;p&gt;解冻：解冻不与原冻结操作相关联，调用方指定要解冻的模式，即指定解冻以上四个模式位中的某一位或某几位。如指定解冻客户入款位，操作成功后，该账户允许客户级别的入款。若解冻的模式位当前并未冻结，返回成功和相应的提示。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;冻结金额变更：&lt;/code&gt;
+资金冻结解冻分两种模式：&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;流水校验模式：&lt;/code&gt;
+解冻时调用方需传入原冻结单号，解冻的金额需小于或等于原冻结单的金额，若传入的金额小于原冻结单的冻结金额，可以再次针对此原冻结单发起解冻，直至原单的冻结金额全部解冻完毕。即 0 &amp;lt; 解冻金额 &amp;lt; 原冻结单冻结金额 - 针对此单已解冻的金额。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;资金池校验模式：&lt;/code&gt;
+发起资金冻结的时候在账户内部形成了一个资金池，解冻时只允许解冻此资金池中的冻结金额。如果业务A冻结的资金，允许B业务来解冻，业务方需说明，即A,B业务共用一个资金池。只要资金池里的冻结金额&amp;gt;=解冻金额&amp;gt;0，则允许解冻。&lt;/p&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;说明：&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;冻结时即需指定模式，流水模式的冻结只能用流水模式解冻，资金池模式的冻结只能用资金池模式解冻。一个账户所有流水模式的冻结金额与所有资金池模式的冻结金额之和等于该账户的冻结金额。&lt;/p&gt;
+
+&lt;p&gt;为了保证所有的资金可追溯，账务系统不提供不做任何校验的解冻接口，即不允许既不指定原冻结单号也不指定资金池的解冻。&lt;/p&gt;
+
+&lt;p&gt;账务系统提供查询某账户下所有资金冻结条目，包括流水模式的冻结条目和资金池模式的冻结条目。后台运营系统可通过查询接口选择要解冻的原单。&lt;/p&gt;
+
+&lt;p&gt;账户的冻结模式与资金的冻结模式无关，即若一个账户处于冻结状态（冻结止入或冻结止出或完全冻结），依然允许对此账户执行资金冻结解冻的操作。&lt;/p&gt;
+
+&lt;h4 id=&quot;业务说明&quot;&gt;业务说明&lt;/h4&gt;
+
+&lt;p&gt;时效性
+用户的操作，在不与资金渠道打交道的地方和场景中，即我方支付系统内部时，都是立即到账；当涉及到银行资金渠道时，充是即时到账，提是我方保证两小时内到账。&lt;/p&gt;
+
+&lt;p&gt;基本户的充提转
+充：在充值过程中，假设用户使用中国银行的银行卡充值0.5元到京东钱包，用户的银行卡扣减0.5元，钱包账户增加0.5元。然后接下来分两端说明：&lt;/p&gt;
+
+&lt;p&gt;在银行端，公司会提前在每个银行开一个账户，用户的钱会从他的银行卡转到支付公司的银行卡（一段时间统一结算，不是实时到账）；&lt;/p&gt;
+
+&lt;p&gt;在支付系统端，内部有两个账户，一个是个人用户的基本户，它增加0.5元，表示用户充值成功，后续可用于消费，另一个是银行应收账户，它增加0.5元，表示公司在银行的银行卡应增加的收入。&lt;/p&gt;
+
+&lt;p&gt;提：在提款过程中，假设用户提现0.5元到中国银行卡，用户的基本账户扣减0.5元，用户的银行卡增加0.5元（两小时内到账）。&lt;/p&gt;
+
+&lt;p&gt;用户提现时，除了用户的基本户会减少0.5元，表示扣款成功，付款待处理户会增加0.5元，表示需要支付用户0.5元。&lt;/p&gt;
+
+&lt;p&gt;转：转账的通道是通过个人基本户，用户A向用户B转账，这是应用场景。&lt;/p&gt;
+
+&lt;p&gt;所以银行卡里的钱首先得充值到个人基本户，再转账给别人；小金库里面的钱，首先得转到个人基本户，再转账给别人。&lt;/p&gt;
+
+&lt;p&gt;小金库账户的转入转出
+转入：小金库的转入可以选择从个人基本户转入或者直接从银行卡转入，但是无论是哪一种方式，都必须通过理财账户透传。&lt;/p&gt;
+
+&lt;p&gt;转出：小金库的转出可以选择转出到个人基本户或者直接转出到银行卡，但是无论是哪一种方式，都必须通过理财账户透传。&lt;/p&gt;
+</description>
+        <pubDate>Wed, 11 Jul 2018 12:00:00 +0000</pubDate>
+        <link>http://localhost:4000/mysql/pay-step-5-accounting/</link>
+        <guid isPermaLink="true">http://localhost:4000/mysql/pay-step-5-accounting/</guid>
+        
+        <category>index</category>
+        
+        <category>mysql</category>
+        
+        <category>database</category>
+        
+        
+        <category>mysql</category>
+        
+      </item>
+    
+  </channel>
+</rss>

@@ -1,30 +1,15 @@
 source "https://rubygems.org"
 
-# Hello! This is where you manage which Jekyll version is used to run.
-# When you want to use a different version, change it below, save the
-# file and run `bundle install`. Run Jekyll with `bundle exec`, like so:
-#
-#     bundle exec jekyll serve
-#
-# This will help ensure the proper Jekyll version is running.
-# Happy Jekylling!
-gem "jekyll", "~> 3.7.3"
+# GitHub Pages 使用的依赖。确保 gem "jekyll" 不再显式声明。
+gem "github-pages", group: :jekyll_plugins
 
-# This is the default theme for new Jekyll sites. You may change this to anything you like.
-gem "minima", "~> 2.0"
-
-# If you want to use GitHub Pages, remove the "gem "jekyll"" above and
-# uncomment the line below. To upgrade, run `bundle update github-pages`.
-# gem "github-pages", group: :jekyll_plugins
-
-# If you have any plugins, put them here!
+# 如果需要其他插件，例如 RSS feed 等，可以放在这里。
 group :jekyll_plugins do
-  gem "jekyll-feed", "~> 0.6"
-  gem 'github-pages'
+  gem "jekyll-feed", "~> 0.6" # 你当前项目中需要的插件
 end
 
-# Windows does not include zoneinfo files, so bundle the tzinfo-data gem
+# Windows 平台的特殊配置
 gem "tzinfo-data", platforms: [:mingw, :mswin, :x64_mingw, :jruby]
 
-# Performance-booster for watching directories on Windows
-gem "wdm", "~> 0.1.0" if Gem.win_platform?
+# Windows 性能优化
+gem "wdm", "~> 0.1.0", platforms: [:mingw, :mswin]
