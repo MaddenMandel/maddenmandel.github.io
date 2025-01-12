@@ -1,19 +1,29 @@
-<head>
+<html lang="en">
+  <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
-    <title>{% if page.title %}{{ site.title }} - {{ page.title }}{% else %}{{ site.title }}{% endif %}</title>
-    <meta name="description" content="{{ site.description }}">
+    <title>maddenmanel - 如何快速基于普罗米修斯实现系统可观测性</title>
+    <meta name="description" content="">
 
-    <link rel="stylesheet" href="{{ "/assets/css/bootstrap.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/animate.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/font-awesome.min.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/font.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/landing.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/app.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/highlight.css" | prepend: site.baseurl }}">
-    <link rel="stylesheet" href="{{ "/assets/css/custom.css" | prepend: site.baseurl }}">
+    <link rel="stylesheet" href="/assets/css/bootstrap.css">
+    <link rel="stylesheet" href="/assets/css/animate.css">
+    <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/css/font.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/highlight.css">
+    <link rel="stylesheet" href="/assets/css/custom.css">
 
-    <link rel="canonical" href="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}">
-</head>
+    <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
+    
+    <!-- Include the Mermaid.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    
+    <script>
+      // Initialize Mermaid.js
+      mermaid.initialize({startOnLoad:true});
+    </script>
+  </head>
+</html>

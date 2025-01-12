@@ -5,16 +5,21 @@ url: "https://maddenmanel.github.io" # the base hostname & protocol for your sit
 github_username: maddenmanel
 
 timezone: Beijing
-plugins: ['jekyll-paginate']
+plugins:
+  - jekyll-paginate
+  - jekyll-feed
+  - jekyll-seo-tag
 
 # Build settings
 highlighter: rouge
 permalink: /:categories/:title/
 
 markdown: kramdown
-# markdown: redcarpet
-redcarpet:
-  extensions: ['fenced_code_blocks', 'tables']
+kramdown:
+  input: GFM
+
+disqus:
+  shortname: your-disqus-shortname
 
 paginate: 5
 

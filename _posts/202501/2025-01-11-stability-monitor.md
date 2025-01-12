@@ -13,46 +13,106 @@ published: true
 
 ### 背景介绍
 系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面：
-| 监控维度   | 监控核心内容             | 监控核心指标                 |
-| ---------- | ------------------------ | ---------------------------- |
-| 物理资源   | 网络、物理机、容器       | 服务器、网络、存储性能和状态 |
-| 中间件     | 数据库、文件、缓存       | 性能、连接、慢查询           |
-| 日志       | 集中化日志管理与查询     | 错误日志数                   |
-| 分布式追踪 | 务调用链分析与故障定位   | 调用链路性能                 |
-| 报警与通知 | 实时报警并支持多通道通知 | 指标告警实时通知             |
+<table>
+  <thead>
+    <tr>
+      <th>监控维度</th>
+      <th>监控中间件选型</th>
+      <th>选型理由</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>指标监控</td>
+      <td>Prometheus + Grafana</td>
+      <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td>
+    </tr>
+    <tr>
+      <td>日志监控</td>
+      <td>Loki + Promtail/Fluent Bit</td>
+      <td>轻量级日志聚合方案，与 Grafana 无缝集成</td>
+    </tr>
+    <tr>
+      <td>分布式追踪</td>
+      <td>OpenTelemetry + Jaeger</td>
+      <td>开放标准的分布式追踪解决方案，支持多语言</td>
+    </tr>
+    <tr>
+      <td>数据库监控</td>
+      <td>Exporter（如 MySQL Exporter）</td>
+      <td>Prometheus 官方或社区维护，支持主流数据库</td>
+    </tr>
+    <tr>
+      <td>网络监控</td>
+      <td>Blackbox Exporter</td>
+      <td>支持 HTTP、TCP 等多协议健康检查</td>
+    </tr>
+    <tr>
+      <td>报警与通知</td>
+      <td>Alertmanager</td>
+      <td>支持多渠道通知（邮件、Slack、Webhook、短信等）</td>
+    </tr>
+  </tbody>
+</table>
 
 ### 选型最佳实践
 中小型公司可以结合自己的业务特点，快速的搭建一套适合自己的监控体系，当前普罗米修斯已经成为了监控实时上的标准，我们可以基于普罗米修斯快速搭建一套属于自己的监控体系：
-| 监控维度   | 监控中间件选型                            | 选型理由                                    |
-|--------|-------------------------------------------|-----------------------------------------|
-| 指标监控   | Prometheus + Grafana                      | 持多种 Exporter，生态丰富，易于配置报警和可视 |
-| 日志监控   | Loki + Promtail/Fluent Bit                | 轻量级日志聚合方案，与 Grafana 无缝集成      |
-| 分布式追踪 | OpenTelemetry + Jaeger                    | 放标准的分布式追踪解决方案，支持多语言       |
-| 数据库监控 | xporter（如 MySQL Exporter、Redis Exporter） | Prometheus 官方或社区维护，支持主流数据库    |
-| 网络监控   | Blackbox Exporter                         | 支持 HTTP、TCP 等多协议健康检查              |
-| 报警与通知 | Alertmanager                                 |   支持多渠道通知（邮件、Slack、Webhook、短信等） |    
+<table>
+  <thead>
+    <tr>
+      <th>监控维度</th>
+      <th>监控中间件选型</th>
+      <th>选型理由</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>指标监控</td>
+      <td>Prometheus + Grafana</td>
+      <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td>
+    </tr>
+    <tr>
+      <td>日志监控</td>
+      <td>Loki + Promtail/Fluent Bit</td>
+      <td>轻量级日志聚合方案，与 Grafana 无缝集成</td>
+    </tr>
+    <tr>
+      <td>分布式追踪</td>
+      <td>OpenTelemetry + Jaeger</td>
+      <td>开放标准的分布式追踪解决方案，支持多语言</td>
+    </tr>
+    <tr>
+      <td>数据库监控</td>
+      <td>Exporter（如 MySQL Exporter、Redis Exporter）</td>
+      <td>Prometheus 官方或社区维护，支持主流数据库</td>
+    </tr>
+    <tr>
+      <td>网络监控</td>
+      <td>Blackbox Exporter</td>
+      <td>支持 HTTP、TCP 等多协议健康检查</td>
+    </tr>
+    <tr>
+      <td>报警与通知</td>
+      <td>Alertmanager</td>
+      <td>支持多渠道通知（邮件、Slack、Webhook、短信等）</td>
+    </tr>
+  </tbody>
+</table>
 
 ### 体系架构设计
-+--------------------+       +-----------------------+
-|   Exporters        | ----> |   Prometheus          |
-| (Node, MySQL, etc) |       | (Metrics Collection)  |
-+--------------------+       +-----------------------+
-^                                |
-|                                v
-+--------------------+       +-----------------------+
-|  Application Logs  | ----> | Loki (Log Aggregation)|
-+--------------------+       +-----------------------+
-^                                |
-|                                v
-+--------------------+       +-----------------------+
-|  Services (Tracing)| ----> | Jaeger (Tracing)      |
-+--------------------+       +-----------------------+
-|                                |
-v                                v
-+--------------------+       +-----------------------+
-|  Blackbox Exporter | ----> | Grafana (Visualization|
-| (Health Checks)    |       |   and Alerts)         |
-+--------------------+       +-----------------------+
+<div class="mermaid">
+  graph TD;
+    A[Prometheus] --> B[Exporters]
+    A --> C[Blackbox Exporter]
+    A --> D[Alertmanager]
+    B --> E[Grafana]
+    C --> E
+    D --> E
+    F[Loki] --> G[Promtail/Fluent Bit]
+    G --> E
+    H[OpenTelemetry] --> I[Jaeger]
+    I --> E
+</div>
 
 ### 定义细化的监控指标
 #### JVM监控

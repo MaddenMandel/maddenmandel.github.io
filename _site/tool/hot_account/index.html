@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+  <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
-    <title>maddenmandel - 如何识别与解决热点账户</title>
+    <title>maddenmanel - 如何快速基于普罗米修斯实现系统可观测性</title>
     <meta name="description" content="">
 
     <link rel="stylesheet" href="/assets/css/bootstrap.css">
@@ -17,15 +18,19 @@
     <link rel="stylesheet" href="/assets/css/highlight.css">
     <link rel="stylesheet" href="/assets/css/custom.css">
 
-    <link rel="canonical" href="http://localhost:4000/tool/hot_account/">
-</head>
-
-  <head>
-    <!-- style sheet of Vssue -->
-    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+    <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
+    
+    <!-- Include the Mermaid.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    
+    <script>
+      // Initialize Mermaid.js
+      mermaid.initialize({startOnLoad:true});
+    </script>
   </head>
+</html>
   <body>
-  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+    <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
   <div class="container">
     <div class="navbar-header">
       <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
@@ -43,20 +48,25 @@
   </div>
 </header>
 
-  <section id="content">
-    <div class="container m-t-lg m-b-lg">
-      <div class="row">
-        <div class="col-sm-12">
-          <div class="blog-post">
-          <!-- Begin Post -->
-            <div class="post-item">
-              <div class="caption wrapper-lg">
-                <h4 class="post-title">如何识别与解决热点账户</h4>
-                <div class="progress progress-xxs m-t-sm">
-                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
-                </div>
-                <div class="post-sum">
-                  <h4 id="背景介绍">背景介绍</h4>
+
+    <section id="content">
+      <div class="container m-t-lg m-b-lg">
+        <div class="row">
+          <div class="col-sm-12">
+            <div class="blog-post">
+              <div class="post-item">
+                <div class="caption wrapper-lg">
+                  <!-- Post Title -->
+                  <h4 class="post-title">如何识别与解决热点账户</h4>
+                  
+                  <!-- Progress bar (if needed) -->
+                  <div class="progress progress-xxs m-t-sm">
+                    <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                  </div>
+
+                  <!-- Post Content -->
+                  <div class="post-sum">
+                    <h4 id="背景介绍">背景介绍</h4>
 <p>账务系统作为互联金融领域的基石系统，承载着所有账户的资金管控，那保证它的稳定可靠是系统建设的第一要务，我们知道在数据库中某个账户余额是一行记录，如果一个大商户每天出入金巨大，那就涉及到对该行记录频繁的更新，这对数据库是巨大的考验，接下来我就和大家一起聊一聊怎么去解决和规避这种频繁的操作问题。</p>
 
 <p>今天分享的是关于如何解决互联网热点账户的问题。互联网解决了人们交易活动地域上的限制，产生了很多巨无霸的商家，对这些巨无霸商家交易账户的操作就成了热点操作，这些热点操作主要体现在账户的明细和余额上面，而这两个操作的更新又是在一个事务中进行的，但是对余额操作是稀缺的资源，所以更新余额就成了瓶颈。今天我和大家一起来聊一下如何解决和规避热点账户的问题（图1）。</p>
@@ -196,72 +206,46 @@
 	</p>
 </p>
 
-                </div>
-
-                <div id="vssue"></div>
-                <!-- Introduce Vue first -->
-
-                <!-- vue runtime build (runtime only)  -->
-                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
-                <!-- OR: vue full build (runtime + compiler)  -->
-                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
-
-                <!-- Introduce Vssue after Vue -->
-
-                <!-- Vssue Github build -->
-                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
-                <!-- Use Vssue as a Vue component -->
-
-                <!-- use render function for vue runtime build -->
-                <script>
-                  new Vue({
-                    el: '#vssue',
-
-                    render: h => h('Vssue', {
-                      props: {
-                        // here set the title of issue of current page
-                        title: 'Vssue Dev',
-
-                        // here set the options for your OAuth App
-                        options: {
-                          owner: 'maddenmandel',
-                          repo: 'maddenmandel.github.io',
-                          clientId: '264a95d2f3b06c2aed0a',
-                          clientSecret: '55a241c0c1220ea55de6fcc2fdc77dfd4db3378d', // only required for some of the platforms
-                        },
-                      }
-                    })
-                  })
-                </script>
-
-                <section class="panel panel-default">
-                  <div class="panel-body">
-                    <a href="https://github.com/maddenmandel" class="thumb pull-right m-l">
-                      <img src="/assets/images/avatar.png" class="img-circle">
-                    </a>
-                    <div class="clear">
-                      <p>
-                        <small class="block text-muted">
-                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
-
-                          <a href="https://github.com/maddenmandel" class="text-info">@XueGang Zhang <i class="icon-twitter"></i></a>
-
-                          <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
-
-                          
-                        </small>
-                      </p>
-                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
-                    </div>
                   </div>
-                </section>
-              </div>
-            </div>
-          <!-- End Post -->
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+
+                  <!-- Utterances Comments Section -->
+                  <div class="comments-section">
+                    <h4>Comments</h4>
+                    <script src="https://utteranc.es/client.js"
+                            repo="maddenmanel/maddenmanel.github.io"
+                            issue-term="pathname"
+                            theme="github-light"
+                            crossorigin="anonymous"
+                            async>
+                    </script>
+                  </div>
+
+                  <!-- Author and Metadata Information -->
+                  <section class="panel panel-default">
+                    <div class="panel-body">
+                      <a href="https://github.com/maddenmanel" class="thumb pull-right m-l">
+                        <img src="/assets/images/avatar.png" class="img-circle">
+                      </a>
+                      <div class="clear">
+                        <p>
+                          <small class="block text-muted">
+                            
+                              <a href="https://github.com/maddenmanel" class="text-info">@XueGang Zhang</a>
+                            <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+                            
+                          </small>
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                </div> <!-- End of Post Item -->
+              </div> <!-- End of Caption -->
+            </div> <!-- End of Blog Post -->
+          </div> <!-- End of Column -->
+        </div> <!-- End of Row -->
+      </div> <!-- End of Container -->
+    </section> <!-- End of Content Section -->
+
   </body>
 </html>

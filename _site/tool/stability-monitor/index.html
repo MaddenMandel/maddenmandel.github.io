@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+  <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
-    <title>maddenmandel - 如何快速基于普罗米修斯实现系统可观测性</title>
+    <title>maddenmanel - 如何快速基于普罗米修斯实现系统可观测性</title>
     <meta name="description" content="">
 
     <link rel="stylesheet" href="/assets/css/bootstrap.css">
@@ -18,14 +19,18 @@
     <link rel="stylesheet" href="/assets/css/custom.css">
 
     <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
-</head>
-
-  <head>
-    <!-- style sheet of Vssue -->
-    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+    
+    <!-- Include the Mermaid.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    
+    <script>
+      // Initialize Mermaid.js
+      mermaid.initialize({startOnLoad:true});
+    </script>
   </head>
+</html>
   <body>
-  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+    <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
   <div class="container">
     <div class="navbar-header">
       <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
@@ -43,182 +48,283 @@
   </div>
 </header>
 
-  <section id="content">
-    <div class="container m-t-lg m-b-lg">
-      <div class="row">
-        <div class="col-sm-12">
-          <div class="blog-post">
-          <!-- Begin Post -->
-            <div class="post-item">
-              <div class="caption wrapper-lg">
-                <h4 class="post-title">如何快速基于普罗米修斯实现系统可观测性</h4>
-                <div class="progress progress-xxs m-t-sm">
-                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
-                </div>
-                <div class="post-sum">
-                  <h3 id="背景介绍">背景介绍</h3>
-<p>系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面：
-| 监控维度 | 监控核心内容    | 监控核心指标 |
-|——|———–|——–|
-| 物理资源 | 网络、物理机、容器 |        |
-|    中间件  |           |        |</p>
 
-<ul class="task-list">
-  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />体系架构设计</li>
-</ul>
+    <section id="content">
+      <div class="container m-t-lg m-b-lg">
+        <div class="row">
+          <div class="col-sm-12">
+            <div class="blog-post">
+              <div class="post-item">
+                <div class="caption wrapper-lg">
+                  <!-- Post Title -->
+                  <h4 class="post-title">如何快速基于普罗米修斯实现系统可观测性</h4>
+                  
+                  <!-- Progress bar (if needed) -->
+                  <div class="progress progress-xxs m-t-sm">
+                    <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                  </div>
 
-<!--  -->
-<p>you yisi<sup id="fnref:1" role="doc-noteref"><a href="#fn:1" class="footnote" rel="footnote">1</a></sup></p>
-
-<p>+——————–+       +———————–+
-|   Exporters        | —-&gt; |   Prometheus          |
-| (Node, MySQL, etc) |       | (Metrics Collection)  |
-+——————–+       +———————–+
-^                                |
-|                                v
-+——————–+       +———————–+
-|  Application Logs  | —-&gt; | Loki (Log Aggregation)|
-+——————–+       +———————–+
-^                                |
-|                                v
-+——————–+       +———————–+
-|  Services (Tracing)| —-&gt; | Jaeger (Tracing)      |
-+——————–+       +———————–+
-|                                |
-v                                v
-+——————–+       +———————–+
-|  Blackbox Exporter | —-&gt; | Grafana (Visualization|
-| (Health Checks)    |       |   and Alerts)         |
-+——————–+       +———————–+</p>
-
-<h3 id="主流分布式调度技术比较">主流分布式调度技术比较</h3>
-
+                  <!-- Post Content -->
+                  <div class="post-sum">
+                    <h3 id="背景介绍">背景介绍</h3>
+<p>系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面：</p>
 <table>
   <thead>
     <tr>
-      <th>功能列表</th>
-      <th>elastic-job</th>
-      <th>XXL-JOB</th>
-      <th>easyJob</th>
+      <th>监控维度</th>
+      <th>监控中间件选型</th>
+      <th>选型理由</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td>任务分片</td>
-      <td>√</td>
-      <td>√</td>
-      <td>√</td>
+      <td>指标监控</td>
+      <td>Prometheus + Grafana</td>
+      <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td>
     </tr>
     <tr>
-      <td>高可用</td>
-      <td>基于zookeeper</td>
-      <td>基于数据库</td>
-      <td>基于数据库</td>
+      <td>日志监控</td>
+      <td>Loki + Promtail/Fluent Bit</td>
+      <td>轻量级日志聚合方案，与 Grafana 无缝集成</td>
     </tr>
     <tr>
-      <td>任务编排</td>
-      <td>×</td>
-      <td>通过子任务依赖来实现</td>
-      <td>完善的DAG功能</td>
+      <td>分布式追踪</td>
+      <td>OpenTelemetry + Jaeger</td>
+      <td>开放标准的分布式追踪解决方案，支持多语言</td>
     </tr>
     <tr>
-      <td>失效转移</td>
-      <td>开启了失效转以后，机器宕机其它机器会立马争抢任务执行</td>
-      <td>执行失败后，记录失败状态，通过后台的守护线程，重新执行失败的任务</td>
-      <td>没有失败转移的功能，任务执行失败，可以配置告警，人工介入</td>
+      <td>数据库监控</td>
+      <td>Exporter（如 MySQL Exporter）</td>
+      <td>Prometheus 官方或社区维护，支持主流数据库</td>
     </tr>
     <tr>
-      <td>动态分片</td>
-      <td>比较完善的分片策略，包括随机、Hash等，提供了扩展点，可以自己实现</td>
-      <td>任务分给执行器可以选择多种算法，动态分片是通过分片广播，客户端代码在实现jobHandler时可以获取分片参数，分片处理自己的数据</td>
-      <td>通过子任务分片，被随机的客户端取走</td>
+      <td>网络监控</td>
+      <td>Blackbox Exporter</td>
+      <td>支持 HTTP、TCP 等多协议健康检查</td>
+    </tr>
+    <tr>
+      <td>报警与通知</td>
+      <td>Alertmanager</td>
+      <td>支持多渠道通知（邮件、Slack、Webhook、短信等）</td>
     </tr>
   </tbody>
 </table>
 
-<ul class="task-list">
-  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />- [ ] - [ ] - [ ] [^4]: <img src="" alt="![[]()]()" /></li>
-</ul>
-<div class="footnotes" role="doc-endnotes">
-  <ol>
-    <li id="fn:1" role="doc-endnote">
-      <p><sup id="fnref:2" role="doc-noteref"><a href="#fn:2" class="footnote" rel="footnote">2</a></sup> <a href="#fnref:1" class="reversefootnote" role="doc-backlink">&#8617;</a></p>
-    </li>
-    <li id="fn:2" role="doc-endnote">
-      <p><sup id="fnref:3" role="doc-noteref"><a href="#fn:3" class="footnote" rel="footnote">3</a></sup> <a href="#fnref:2" class="reversefootnote" role="doc-backlink">&#8617;</a></p>
-    </li>
-    <li id="fn:3" role="doc-endnote">
-      <p>[^4] <a href="#fnref:3" class="reversefootnote" role="doc-backlink">&#8617;</a></p>
-    </li>
-  </ol>
+<h3 id="选型最佳实践">选型最佳实践</h3>
+<p>中小型公司可以结合自己的业务特点，快速的搭建一套适合自己的监控体系，当前普罗米修斯已经成为了监控实时上的标准，我们可以基于普罗米修斯快速搭建一套属于自己的监控体系：</p>
+<table>
+  <thead>
+    <tr>
+      <th>监控维度</th>
+      <th>监控中间件选型</th>
+      <th>选型理由</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>指标监控</td>
+      <td>Prometheus + Grafana</td>
+      <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td>
+    </tr>
+    <tr>
+      <td>日志监控</td>
+      <td>Loki + Promtail/Fluent Bit</td>
+      <td>轻量级日志聚合方案，与 Grafana 无缝集成</td>
+    </tr>
+    <tr>
+      <td>分布式追踪</td>
+      <td>OpenTelemetry + Jaeger</td>
+      <td>开放标准的分布式追踪解决方案，支持多语言</td>
+    </tr>
+    <tr>
+      <td>数据库监控</td>
+      <td>Exporter（如 MySQL Exporter、Redis Exporter）</td>
+      <td>Prometheus 官方或社区维护，支持主流数据库</td>
+    </tr>
+    <tr>
+      <td>网络监控</td>
+      <td>Blackbox Exporter</td>
+      <td>支持 HTTP、TCP 等多协议健康检查</td>
+    </tr>
+    <tr>
+      <td>报警与通知</td>
+      <td>Alertmanager</td>
+      <td>支持多渠道通知（邮件、Slack、Webhook、短信等）</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="体系架构设计">体系架构设计</h3>
+<div class="mermaid">
+  graph TD;
+    A[Prometheus] --&gt; B[Exporters]
+    A --&gt; C[Blackbox Exporter]
+    A --&gt; D[Alertmanager]
+    B --&gt; E[Grafana]
+    C --&gt; E
+    D --&gt; E
+    F[Loki] --&gt; G[Promtail/Fluent Bit]
+    G --&gt; E
+    H[OpenTelemetry] --&gt; I[Jaeger]
+    I --&gt; E
 </div>
 
-                </div>
+<h3 id="定义细化的监控指标">定义细化的监控指标</h3>
+<h4 id="jvm监控">JVM监控</h4>
 
-                <div id="vssue"></div>
-                <!-- Introduce Vue first -->
+<p>JVM监控功能用于监控重要的JVM指标，包括GC（Garbage Collection）瞬时指标、堆内存指标、非堆内存指标、元空间指标、直接缓冲区指标、JVM线程数等。本文介绍JVM监控功能和查看JVM监控指标的操作步骤。</p>
 
-                <!-- vue runtime build (runtime only)  -->
-                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
-                <!-- OR: vue full build (runtime + compiler)  -->
-                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
+<p>JVM监控功能可监控以下指标：</p>
 
-                <!-- Introduce Vssue after Vue -->
+<ul>
+  <li>GC（垃圾收集）瞬时和累计详情
+    <ul>
+      <li>FullGC次数</li>
+      <li>YoungGC次数</li>
+      <li>FullGC耗时</li>
+      <li>YoungGC耗时</li>
+    </ul>
+  </li>
+  <li>堆内存详情
+    <ul>
+      <li>堆内存总和</li>
+      <li>堆内存老年代字节数</li>
+      <li>堆内存年轻代Survivor区字节数</li>
+      <li>堆内存年轻代Eden区字节数</li>
+    </ul>
+  </li>
+  <li>
+    <p>元空间</p>
 
-                <!-- Vssue Github build -->
-                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
-                <!-- Use Vssue as a Vue component -->
+    <p>元空间字节数</p>
+  </li>
+  <li>非堆内存
+    <ul>
+      <li>非堆内存最大字节数</li>
+      <li>非堆内存使用字节数</li>
+    </ul>
+  </li>
+  <li>直接缓冲区
+    <ul>
+      <li>DirectBuffer总大小（字节）</li>
+      <li>DirectBuffer使用大小（字节）</li>
+    </ul>
+  </li>
+  <li>JVM线程数
+    <ul>
+      <li>线程总数量</li>
+      <li>死锁线程数量</li>
+      <li>新建线程数量</li>
+      <li>阻塞线程数量</li>
+      <li>可运行线程数量</li>
+      <li>终结线程数量</li>
+      <li>限时等待线程数量</li>
+      <li>等待中线程数量
+<img src="../../assets/images/pictures/2025-01-11-stability-monitor/cf45b86fe49cc6ffc09b7d53d4cfbbf1.png" alt="cf45b86fe49cc6ffc09b7d53d4cfbbf1.png" /></li>
+    </ul>
+  </li>
+</ul>
 
-                <!-- use render function for vue runtime build -->
-                <script>
-                  new Vue({
-                    el: '#vssue',
+<h4 id="主机监控">主机监控</h4>
 
-                    render: h => h('Vssue', {
-                      props: {
-                        // here set the title of issue of current page
-                        title: 'Vssue Dev',
+<p>主机监控功能用于监控CPU、内存、Disk（磁盘）、Load（负载）、网络流量和网络数据包的各项指标。本文介绍主机监控功能和查看主机监控指标的操作步骤。</p>
 
-                        // here set the options for your OAuth App
-                        options: {
-                          owner: 'maddenmandel',
-                          repo: 'maddenmandel.github.io',
-                          clientId: '264a95d2f3b06c2aed0a',
-                          clientSecret: '55a241c0c1220ea55de6fcc2fdc77dfd4db3378d', // only required for some of the platforms
-                        },
-                      }
-                    })
-                  })
-                </script>
+<p>主机监控功能可监控以下指标：</p>
 
-                <section class="panel panel-default">
-                  <div class="panel-body">
-                    <a href="https://github.com/maddenmandel" class="thumb pull-right m-l">
-                      <img src="/assets/images/avatar.png" class="img-circle">
-                    </a>
-                    <div class="clear">
-                      <p>
-                        <small class="block text-muted">
-                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
+<ul>
+  <li>CPU
+    <ul>
+      <li>CPU使用率总和</li>
+      <li>系统CPU使用率</li>
+      <li>用户CPU使用率</li>
+      <li>等待IO完成的CPU使用率</li>
+    </ul>
+  </li>
+  <li>物理内存
+    <ul>
+      <li>系统总内存</li>
+      <li>系统空闲内存</li>
+      <li>系统已使用内存</li>
+      <li>系统PageCache中的内存</li>
+      <li>系统BufferCache中的内存</li>
+    </ul>
+  </li>
+  <li>Disk（磁盘）
+    <ul>
+      <li>系统磁盘总字节数</li>
+      <li>系统磁盘空闲字节数</li>
+      <li>系统磁盘使用字节数</li>
+    </ul>
+  </li>
+  <li>
+    <p>Load（负载）</p>
 
-                          <a href="https://github.com/maddenmandel" class="text-info">@XueGang Zhang <i class="icon-twitter"></i></a>
+    <p>系统负载数</p>
+  </li>
+  <li>网络流量
+    <ul>
+      <li>网络接收的字节数</li>
+      <li>网络发送的字节数</li>
+    </ul>
+  </li>
+  <li>网络数据包
+    <ul>
+      <li>每分钟网络接收的报文数</li>
+      <li>每分钟网络发送的报文数</li>
+      <li>每分钟网络接收的错误数</li>
+      <li>每分钟网络丢弃的报文数</li>
+    </ul>
+  </li>
+</ul>
 
-                          <i class="fa fa-clock-o icon-muted"></i> Jan 11, 2025
+<h4 id="sql调用分析"><strong>SQL调用分析</strong></h4>
 
-                          
-                        </small>
-                      </p>
-                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
-                    </div>
+<p>查看SQL调用分析，从而了解应用的SQL调用情况。</p>
+
+<h4 id="异常和错误码监控">异常和错误码监控</h4>
+
+<p>例如支付等核心业务系统需要进行错误码监控</p>
+
                   </div>
-                </section>
-              </div>
-            </div>
-          <!-- End Post -->
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+
+                  <!-- Utterances Comments Section -->
+                  <div class="comments-section">
+                    <h4>Comments</h4>
+                    <script src="https://utteranc.es/client.js"
+                            repo="maddenmanel/maddenmanel.github.io"
+                            issue-term="pathname"
+                            theme="github-light"
+                            crossorigin="anonymous"
+                            async>
+                    </script>
+                  </div>
+
+                  <!-- Author and Metadata Information -->
+                  <section class="panel panel-default">
+                    <div class="panel-body">
+                      <a href="https://github.com/maddenmanel" class="thumb pull-right m-l">
+                        <img src="/assets/images/avatar.png" class="img-circle">
+                      </a>
+                      <div class="clear">
+                        <p>
+                          <small class="block text-muted">
+                            
+                              <a href="https://github.com/maddenmanel" class="text-info">@XueGang Zhang</a>
+                            <i class="fa fa-clock-o icon-muted"></i> Jan 11, 2025
+                            
+                          </small>
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                </div> <!-- End of Post Item -->
+              </div> <!-- End of Caption -->
+            </div> <!-- End of Blog Post -->
+          </div> <!-- End of Column -->
+        </div> <!-- End of Row -->
+      </div> <!-- End of Container -->
+    </section> <!-- End of Content Section -->
+
   </body>
 </html>

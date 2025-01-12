@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+  <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
-    <title>maddenmandel - 分布式任务调度系统实现原理与选型</title>
+    <title>maddenmanel - 如何快速基于普罗米修斯实现系统可观测性</title>
     <meta name="description" content="">
 
     <link rel="stylesheet" href="/assets/css/bootstrap.css">
@@ -17,15 +18,19 @@
     <link rel="stylesheet" href="/assets/css/highlight.css">
     <link rel="stylesheet" href="/assets/css/custom.css">
 
-    <link rel="canonical" href="http://localhost:4000/tool/distribute-job/">
-</head>
-
-  <head>
-    <!-- style sheet of Vssue -->
-    <link rel="stylesheet" href="https://unpkg.com/vssue/dist/vssue.min.css">
+    <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
+    
+    <!-- Include the Mermaid.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    
+    <script>
+      // Initialize Mermaid.js
+      mermaid.initialize({startOnLoad:true});
+    </script>
   </head>
+</html>
   <body>
-  <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+    <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
   <div class="container">
     <div class="navbar-header">
       <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
@@ -43,20 +48,25 @@
   </div>
 </header>
 
-  <section id="content">
-    <div class="container m-t-lg m-b-lg">
-      <div class="row">
-        <div class="col-sm-12">
-          <div class="blog-post">
-          <!-- Begin Post -->
-            <div class="post-item">
-              <div class="caption wrapper-lg">
-                <h4 class="post-title">分布式任务调度系统实现原理与选型</h4>
-                <div class="progress progress-xxs m-t-sm">
-                  <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
-                </div>
-                <div class="post-sum">
-                  <h3 id="背景介绍">背景介绍</h3>
+
+    <section id="content">
+      <div class="container m-t-lg m-b-lg">
+        <div class="row">
+          <div class="col-sm-12">
+            <div class="blog-post">
+              <div class="post-item">
+                <div class="caption wrapper-lg">
+                  <!-- Post Title -->
+                  <h4 class="post-title">分布式任务调度系统实现原理与选型</h4>
+                  
+                  <!-- Progress bar (if needed) -->
+                  <div class="progress progress-xxs m-t-sm">
+                    <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                  </div>
+
+                  <!-- Post Content -->
+                  <div class="post-sum">
+                    <h3 id="背景介绍">背景介绍</h3>
 
 <p>针对分布式跑批任务进行调研，选择合适于当前场景下的任务调度系统，对其进行改造以应用于生产环境。任务调度最直接简单的方式就是利用Lunix自带的任务Crontab，但是在任务执行监控、日志查看等任务管理上都存在很多的问题。现在的开源系统分为两类：以 Quartz 为代表的定时类调度系统和以 DAG 为核心的工作流调度系统。首先看看定时类调度系统，它们的设计核心是定时运行、数据分片和弹性扩容，但是对依赖关系支持的不太友好，更适用于后端业务开发，其代表为 XXL-JOB 、Elastic-Job 。而数据团队最常见的操作是的 ETL （抽取、转换和加载数据），更强调的是任务的依赖关系，所以关注点便是以 DAG 为核心的工作流调度系统了。</p>
 
@@ -262,72 +272,46 @@
 <p><a href="https://zhuanlan.zhihu.com/p/72008180">数据平台之任务调度系统</a></p>
 
 
-                </div>
-
-                <div id="vssue"></div>
-                <!-- Introduce Vue first -->
-
-                <!-- vue runtime build (runtime only)  -->
-                <script src="https://unpkg.com/vue/dist/vue.runtime.min.js"></script>
-                <!-- OR: vue full build (runtime + compiler)  -->
-                <script src="https://unpkg.com/vue/dist/vue.min.js"></script>
-
-                <!-- Introduce Vssue after Vue -->
-
-                <!-- Vssue Github build -->
-                <script src="https://unpkg.com/vssue/dist/vssue.github.min.js"></script>
-                <!-- Use Vssue as a Vue component -->
-
-                <!-- use render function for vue runtime build -->
-                <script>
-                  new Vue({
-                    el: '#vssue',
-
-                    render: h => h('Vssue', {
-                      props: {
-                        // here set the title of issue of current page
-                        title: 'Vssue Dev',
-
-                        // here set the options for your OAuth App
-                        options: {
-                          owner: 'maddenmandel',
-                          repo: 'maddenmandel.github.io',
-                          clientId: '264a95d2f3b06c2aed0a',
-                          clientSecret: '55a241c0c1220ea55de6fcc2fdc77dfd4db3378d', // only required for some of the platforms
-                        },
-                      }
-                    })
-                  })
-                </script>
-
-                <section class="panel panel-default">
-                  <div class="panel-body">
-                    <a href="https://github.com/maddenmandel" class="thumb pull-right m-l">
-                      <img src="/assets/images/avatar.png" class="img-circle">
-                    </a>
-                    <div class="clear">
-                      <p>
-                        <small class="block text-muted">
-                          如果觉得我的文章对您有用，请在支付宝公益平台找个项目捐点钱。
-
-                          <a href="https://github.com/maddenmandel" class="text-info">@XueGang Zhang <i class="icon-twitter"></i></a>
-
-                          <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
-
-                          
-                        </small>
-                      </p>
-                      <a href="https://love.alipay.com/donate/index.htm" class="btn btn-s-md btn-success btn-rounded">奉献爱心</a>
-                    </div>
                   </div>
-                </section>
-              </div>
-            </div>
-          <!-- End Post -->
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+
+                  <!-- Utterances Comments Section -->
+                  <div class="comments-section">
+                    <h4>Comments</h4>
+                    <script src="https://utteranc.es/client.js"
+                            repo="maddenmanel/maddenmanel.github.io"
+                            issue-term="pathname"
+                            theme="github-light"
+                            crossorigin="anonymous"
+                            async>
+                    </script>
+                  </div>
+
+                  <!-- Author and Metadata Information -->
+                  <section class="panel panel-default">
+                    <div class="panel-body">
+                      <a href="https://github.com/maddenmanel" class="thumb pull-right m-l">
+                        <img src="/assets/images/avatar.png" class="img-circle">
+                      </a>
+                      <div class="clear">
+                        <p>
+                          <small class="block text-muted">
+                            
+                              <a href="https://github.com/maddenmanel" class="text-info">@XueGang Zhang</a>
+                            <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+                            
+                          </small>
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                </div> <!-- End of Post Item -->
+              </div> <!-- End of Caption -->
+            </div> <!-- End of Blog Post -->
+          </div> <!-- End of Column -->
+        </div> <!-- End of Row -->
+      </div> <!-- End of Container -->
+    </section> <!-- End of Content Section -->
+
   </body>
 </html>
