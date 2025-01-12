@@ -4,7 +4,7 @@ baseurl: "" # the subpath of your site, e.g. /blog/
 url: "https://maddenmanel.github.io" # the base hostname & protocol for your site
 github_username: maddenmanel
 
-timezone: Beijing
+timezone: Hongkong
 plugins:
   - jekyll-paginate
   - jekyll-feed
@@ -21,7 +21,9 @@ kramdown:
 disqus:
   shortname: your-disqus-shortname
 
-paginate: 5
+# Pagination settings
+paginate: 10
+paginate_path: "/page/:num/"
 
 github: [metadata]
 

@@ -9,13 +9,13 @@ body {
   background-color: transparent;
   -webkit-font-smoothing: antialiased;
 }
-.h1,
-.h2,
-.h3,
-.h4,
-.h5,
-.h6 {
-  margin: 0;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Merriweather', serif;
+  font-weight: 700;
+}
+p, ul, ol, blockquote, table {
+  font-family: 'Merriweather', serif;
+  font-weight: 400;
 }
 a {
   color: #2e3e4e;

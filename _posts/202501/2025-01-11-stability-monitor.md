@@ -1,105 +1,105 @@
 ---
 layout: post
-title:  "如何快速基于普罗米修斯实现系统可观测性"
+title:  "Monitor With Prometheus"
 date:   2025-01-11 12:00:00
 
 categories: tool
-tags: archtecture refactoring tool
+tags: architecture refactoring tool
 author: "XueGang Zhang"
 image: /images/logo.png
 comments: true
 published: true
 ---
 
-### 背景介绍
-系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面：
+### Background
+A significant part of system stability is supported by monitoring. Large companies usually have well-established monitoring and operations teams to build the monitoring infrastructure. From a layered perspective, monitoring generally includes the following aspects:
 <table>
   <thead>
     <tr>
-      <th>监控维度</th>
-      <th>监控中间件选型</th>
-      <th>选型理由</th>
+      <th>Monitoring Dimension</th>
+      <th>Middleware Selection</th>
+      <th>Reason for Selection</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td>指标监控</td>
+      <td>Metric Monitoring</td>
       <td>Prometheus + Grafana</td>
-      <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td>
+      <td>Supports multiple Exporters, rich ecosystem, easy to configure alerts and visualizations</td>
     </tr>
     <tr>
-      <td>日志监控</td>
+      <td>Log Monitoring</td>
       <td>Loki + Promtail/Fluent Bit</td>
-      <td>轻量级日志聚合方案，与 Grafana 无缝集成</td>
+      <td>Lightweight log aggregation solution, seamlessly integrates with Grafana</td>
     </tr>
     <tr>
-      <td>分布式追踪</td>
+      <td>Distributed Tracing</td>
       <td>OpenTelemetry + Jaeger</td>
-      <td>开放标准的分布式追踪解决方案，支持多语言</td>
+      <td>Open standard for distributed tracing, supports multiple languages</td>
     </tr>
     <tr>
-      <td>数据库监控</td>
-      <td>Exporter（如 MySQL Exporter）</td>
-      <td>Prometheus 官方或社区维护，支持主流数据库</td>
+      <td>Database Monitoring</td>
+      <td>Exporter (e.g., MySQL Exporter)</td>
+      <td>Prometheus maintained by official or community, supports mainstream databases</td>
     </tr>
     <tr>
-      <td>网络监控</td>
+      <td>Network Monitoring</td>
       <td>Blackbox Exporter</td>
-      <td>支持 HTTP、TCP 等多协议健康检查</td>
+      <td>Supports multi-protocol health checks like HTTP, TCP</td>
     </tr>
     <tr>
-      <td>报警与通知</td>
+      <td>Alerting and Notification</td>
       <td>Alertmanager</td>
-      <td>支持多渠道通知（邮件、Slack、Webhook、短信等）</td>
+      <td>Supports multi-channel notifications (email, Slack, Webhook, SMS, etc.)</td>
     </tr>
   </tbody>
 </table>
 
-### 选型最佳实践
-中小型公司可以结合自己的业务特点，快速的搭建一套适合自己的监控体系，当前普罗米修斯已经成为了监控实时上的标准，我们可以基于普罗米修斯快速搭建一套属于自己的监控体系：
+### Best Practices for Selection
+Small and medium-sized companies can quickly build a monitoring system that suits their business characteristics. Prometheus has already become the standard for real-time monitoring. We can quickly set up our own monitoring system based on Prometheus:
 <table>
   <thead>
     <tr>
-      <th>监控维度</th>
-      <th>监控中间件选型</th>
-      <th>选型理由</th>
+      <th>Monitoring Dimension</th>
+      <th>Middleware Selection</th>
+      <th>Reason for Selection</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td>指标监控</td>
+      <td>Metric Monitoring</td>
       <td>Prometheus + Grafana</td>
-      <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td>
+      <td>Supports multiple Exporters, rich ecosystem, easy to configure alerts and visualizations</td>
     </tr>
     <tr>
-      <td>日志监控</td>
+      <td>Log Monitoring</td>
       <td>Loki + Promtail/Fluent Bit</td>
-      <td>轻量级日志聚合方案，与 Grafana 无缝集成</td>
+      <td>Lightweight log aggregation solution, seamlessly integrates with Grafana</td>
     </tr>
     <tr>
-      <td>分布式追踪</td>
+      <td>Distributed Tracing</td>
       <td>OpenTelemetry + Jaeger</td>
-      <td>开放标准的分布式追踪解决方案，支持多语言</td>
+      <td>Open standard for distributed tracing, supports multiple languages</td>
     </tr>
     <tr>
-      <td>数据库监控</td>
-      <td>Exporter（如 MySQL Exporter、Redis Exporter）</td>
-      <td>Prometheus 官方或社区维护，支持主流数据库</td>
+      <td>Database Monitoring</td>
+      <td>Exporter (e.g., MySQL Exporter, Redis Exporter)</td>
+      <td>Prometheus maintained by official or community, supports mainstream databases</td>
     </tr>
     <tr>
-      <td>网络监控</td>
+      <td>Network Monitoring</td>
       <td>Blackbox Exporter</td>
-      <td>支持 HTTP、TCP 等多协议健康检查</td>
+      <td>Supports multi-protocol health checks like HTTP, TCP</td>
     </tr>
     <tr>
-      <td>报警与通知</td>
+      <td>Alerting and Notification</td>
       <td>Alertmanager</td>
-      <td>支持多渠道通知（邮件、Slack、Webhook、短信等）</td>
+      <td>Supports multi-channel notifications (email, Slack, Webhook, SMS, etc.)</td>
     </tr>
   </tbody>
 </table>
 
-### 体系架构设计
+### System Architecture Design
 <div class="mermaid">
   graph TD;
     A[Prometheus] --> B[Exporters]
@@ -114,82 +114,99 @@ published: true
     I --> E
 </div>
 
-### 定义细化的监控指标
-#### JVM监控
+### Defining Refined Monitoring Metrics
+#### JVM Monitoring
 
-JVM监控功能用于监控重要的JVM指标，包括GC（Garbage Collection）瞬时指标、堆内存指标、非堆内存指标、元空间指标、直接缓冲区指标、JVM线程数等。本文介绍JVM监控功能和查看JVM监控指标的操作步骤。
+JVM monitoring is used to track important JVM metrics, including GC (Garbage Collection) instant metrics, heap memory metrics, non-heap memory metrics, metaspace metrics, direct buffer metrics, JVM thread count, etc. This section introduces JVM monitoring and how to view JVM monitoring metrics.
 
-JVM监控功能可监控以下指标：
+JVM monitoring can track the following metrics:
 
-- GC（垃圾收集）瞬时和累计详情
-    - FullGC次数
-    - YoungGC次数
-    - FullGC耗时
-    - YoungGC耗时
-- 堆内存详情
-    - 堆内存总和
-    - 堆内存老年代字节数
-    - 堆内存年轻代Survivor区字节数
-    - 堆内存年轻代Eden区字节数
-- 元空间
+- GC (Garbage Collection) instant and cumulative details
+    - FullGC count
+    - YoungGC count
+    - FullGC duration
+    - YoungGC duration
+- Heap Memory Details
+    - Total heap memory
+    - Old generation heap memory size
+    - Young generation Survivor area size
+    - Young generation Eden area size
+- Metaspace
     
-    元空间字节数
+    Metaspace size
     
-- 非堆内存
-    - 非堆内存最大字节数
-    - 非堆内存使用字节数
-- 直接缓冲区
-    - DirectBuffer总大小（字节）
-    - DirectBuffer使用大小（字节）
-- JVM线程数
-    - 线程总数量
-    - 死锁线程数量
-    - 新建线程数量
-    - 阻塞线程数量
-    - 可运行线程数量
-    - 终结线程数量
-    - 限时等待线程数量
-    - 等待中线程数量
-![cf45b86fe49cc6ffc09b7d53d4cfbbf1.png](../../assets/images/pictures/2025-01-11-stability-monitor/cf45b86fe49cc6ffc09b7d53d4cfbbf1.png)
+- Non-Heap Memory
+    - Maximum non-heap memory size
+    - Used non-heap memory size
+- Direct Buffer
+    - Total DirectBuffer size (bytes)
+    - Used DirectBuffer size (bytes)
+- JVM Thread Count
+    - Total number of threads
+    - Number of deadlocked threads
+    - Number of newly created threads
+    - Number of blocked threads
+    - Number of runnable threads
+    - Number of terminated threads
+    - Number of threads in timed wait
+    - Number of threads in waiting state
+<div class="mermaid">
+mindmap
+  Root((Memory Usage in Java Processes))
+    JVM Memory
+      Heap Memory
+        Young Generation
+        Old Generation
+      Off-Heap Memory
+        Metaspace
+        Compressed Class Space
+        JVM Thread Stack
+        Native Thread Stack
+        Code Cache
+        Direct Buffer
+    Non-JVM Memory
+      Native Runtime Libraries
+      JNI Native Code
+</div>
 
-#### 主机监控
+#### Host Monitoring
 
-主机监控功能用于监控CPU、内存、Disk（磁盘）、Load（负载）、网络流量和网络数据包的各项指标。本文介绍主机监控功能和查看主机监控指标的操作步骤。
+Host monitoring tracks various metrics such as CPU, memory, disk, load, network traffic, and network packet metrics. This section introduces host monitoring and how to view host monitoring metrics.
 
-主机监控功能可监控以下指标：
+Host monitoring can track the following metrics:
 
 - CPU
-    - CPU使用率总和
-    - 系统CPU使用率
-    - 用户CPU使用率
-    - 等待IO完成的CPU使用率
-- 物理内存
-    - 系统总内存
-    - 系统空闲内存
-    - 系统已使用内存
-    - 系统PageCache中的内存
-    - 系统BufferCache中的内存
-- Disk（磁盘）
-    - 系统磁盘总字节数
-    - 系统磁盘空闲字节数
-    - 系统磁盘使用字节数
-- Load（负载）
+    - Total CPU usage
+    - System CPU usage
+    - User CPU usage
+    - CPU usage waiting for I/O completion
+- Physical Memory
+    - Total system memory
+    - Free system memory
+    - Used system memory
+    - Memory in PageCache
+    - Memory in BufferCache
+- Disk
+    - Total system disk size
+    - Free system disk size
+    - Used system disk size
+- Load
     
-    系统负载数
+    System load average
     
-- 网络流量
-    - 网络接收的字节数
-    - 网络发送的字节数
-- 网络数据包
-    - 每分钟网络接收的报文数
-    - 每分钟网络发送的报文数
-    - 每分钟网络接收的错误数
-    - 每分钟网络丢弃的报文数
+- Network Traffic
+    - Network received bytes
+    - Network sent bytes
+- Network Packets
+    - Number of received packets per minute
+    - Number of sent packets per minute
+    - Number of network errors per minute
+    - Number of dropped packets per minute
     
-#### **SQL调用分析**
+#### **SQL Call Analysis**
 
-查看SQL调用分析，从而了解应用的SQL调用情况。
+View SQL call analysis to understand SQL call patterns in applications.
 
-#### 异常和错误码监控
+#### Error Code Monitoring
 
-例如支付等核心业务系统需要进行错误码监控
+For core business systems, such as payment systems, error code monitoring is essential.

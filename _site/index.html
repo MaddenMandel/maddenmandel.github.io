@@ -9,6 +9,9 @@
     <title>maddenmanel - 如何快速基于普罗米修斯实现系统可观测性</title>
     <meta name="description" content="">
 
+    <!-- 引入 Merriweather 字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="/assets/css/bootstrap.css">
     <link rel="stylesheet" href="/assets/css/animate.css">
     <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
@@ -21,7 +24,7 @@
     <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
     
     <!-- Include the Mermaid.js library -->
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
     
     <script>
       // Initialize Mermaid.js
@@ -57,11 +60,11 @@
 <!-- old home -->
 <div class="post-item" style="display:none;">
   <div class="caption wrapper-lg">
-    <h4 class="post-title"><a class="post-link" href="/tool/stability-monitor/">如何快速基于普罗米修斯实现系统可观测性</a></h4>
+    <h4 class="post-title"><a class="post-link" href="/tool/stability-monitor/">Monitor With Prometheus</a></h4>
     <div class="line line-lg"></div>
     <div class="post-sum">
-      <p>背景介绍 系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面： 监控维度 监控中间件选型 选型理由 指标监控 Prometheus + Grafana 持多种 Exporter，生态丰富，易于配置报警和可视化 日志监控 Loki + Promtail/Fluent Bit 轻量级日志聚合方案，与 Grafana 无缝集成 分布式追踪...<br>
-      <!-- <p><h3 id="背景介绍">背景介绍</h3> <p>系统稳定性方面很大一部分是通过监控来支持，一般大型公司都有比较完善的监控运维团队来进行监控基础设施的建设，从分层的角度上看，监控一般包含以下几个方面：</p> <table> <thead> <tr> <th>监控维度</th> <th>监控中间件选型</th> <th>选型理由</th> </tr> </thead> <tbody> <tr> <td>指标监控</td> <td>Prometheus + Grafana</td> <td>持多种 Exporter，生态丰富，易于配置报警和可视化</td> </tr>...<br> -->
+      <p>Background A significant part of system stability is supported by monitoring. Large companies usually have well-established monitoring and operations teams...<br>
+      <!-- <p><h3 id="background">Background</h3> <p>A significant part of system stability is supported by monitoring. Large companies usually have well-established monitoring and operations...<br> -->
     </div>
     <div class="text-muted">
       <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmanel" class="m-r-sm">XueGang Zhang</a>
@@ -139,6 +142,91 @@
   </div>
 </div>
 
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/microservices_arc/">微服务架构设计模式</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>概述 我们最开始一般采用单体架构去创建应用程序，单体架构中，初始化、配置、监控和管理各种复杂的功能捆绑在一起，当业务快速发发展时，这就给开发和运维带来了挑战。由于单体架构开发上运维上的问题，软件行业开始尝试新的东西，亚马逊早在2002年左右开始逐步从单体架构迁移，新架构用一系列松耦合的服务取代了单体，最终实现了平均11.6s就能将代码的更待部署到生产环境中。 现在我们也在也在尝试用微服务架构去拆分单体的应用，那如何实践？这篇文章和大家讨论一下，微服务架构设计的一些想法和最佳实践。 单体架构 我们通过一个例子来简单的说明一下单体架构，假设我们要构建一个电商应用，它能够支持接收客户的订单、验证库存、查看客户账户的信用额度，而后进行发货。该程序有多个组件组成StoreFrontUI负责实现用户界面，而其它后端服务则分别负责检查信用额度、维护库存和发送订单。 该应用通过Apache/Nginx实现请求的转发和负载均衡，将单体打包为WAR文件，为了提高扩展性和可用性，你可以在负载均衡器之后运行此应用的多个实例。 这个单体应用的好处： 易于开发 — 当前开发工具与IDE的设计目标即在于支持单体应用的开发。 易于部署 — 你只需要将该WAR（或者目录层级）部署在合适的运行环境中即可。 易于扩展 — 你可以在负载均衡器后面运行多个应用副本实现扩展。 然而，一旦应用变大、团队扩大，这种方案的弊端将会变得愈发明显： 单体应用巨大的代码库可能会让人望而生畏，特别是对那些团队新成员来说。应用难以被理解和进行修改，进而导致开发速度减慢。由于没有清晰的模块边界，模块化会逐渐消失。另外，由于难以正确把握代码变化，导致代码质量逐步下滑，陷入恶性循环。 过载的IDE——代码库越大，IDE速度越慢，开发者的生产效率越低。 过载的Web容器——应用越大，Web容器启动时间越长。容器启动耗费时间，极大影响到开发者的生产效率。对部署工作也有负面影响。...<br>
+      <!-- <p><h4 id="概述">概述</h4> <p>我们最开始一般采用单体架构去创建应用程序，单体架构中，初始化、配置、监控和管理各种复杂的功能捆绑在一起，当业务快速发发展时，这就给开发和运维带来了挑战。由于单体架构开发上运维上的问题，软件行业开始尝试新的东西，亚马逊早在2002年左右开始逐步从单体架构迁移，新架构用一系列松耦合的服务取代了单体，最终实现了平均11.6s就能将代码的更待部署到生产环境中。</p> <p>现在我们也在也在尝试用微服务架构去拆分单体的应用，那如何实践？这篇文章和大家讨论一下，微服务架构设计的一些想法和最佳实践。</p> <h4 id="单体架构">单体架构</h4> <p>我们通过一个例子来简单的说明一下单体架构，假设我们要构建一个电商应用，它能够支持接收客户的订单、验证库存、查看客户账户的信用额度，而后进行发货。该程序有多个组件组成StoreFrontUI负责实现用户界面，而其它后端服务则分别负责检查信用额度、维护库存和发送订单。</p> <p>该应用通过Apache/Nginx实现请求的转发和负载均衡，将单体打包为WAR文件，为了提高扩展性和可用性，你可以在负载均衡器之后运行此应用的多个实例。</p> <p><img src="/assets/images/pictures/2019-10-26-microservices_arc/DecomposingApplications.011.jpg" alt="典型的单体架构" style="zoom:80%" /></p> <p><strong>这个单体应用的好处：</strong></p> <ul> <li>易于开发 — 当前开发工具与IDE的设计目标即在于支持单体应用的开发。</li> <li>易于部署 —...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmanel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/mysql/mysql_index/">Mysql 索引原理与Mysql优化</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>背景介绍 不可否认的是，MySQL由于其性能高、成本低、可靠性好，已经成为最流行的开源数据库之一，随着MySQL的不断成熟，它也逐渐用于更多大规模网站和应用，国内大部分互联网公司在去IOE的过程中，用MySQL的居多，创业公司也大部分采用了MySQL。互联网的不断发展中，体验成为了企业决胜的一大要素，而体验有一个很重要的衡量指标就是影响速度。响应速度很大程度上瓶颈都在数据库的瓶颈，那极致的优化数据库的性能变得很重要。索引结构在Mysql的查询中起到了重要的作用，那了解其数据结构，并针对其优化变得异常重要。 索引的数据结构 我们知道，数据库查询是数据库最重要的功能之一。我们都希望查询数据的速度能够尽可能的块，因此数据库系统的设计者会从查询算法的角度进行优化。我们知道MYSQL索引是帮助MySQL高效获取数据的数据结构。它的本质就是数据结构，单独存储在磁盘上，用它来提高数据查询的效率。，那么我们需要保证他尽可能少的执行磁盘IO操作。数据结构随着应用场景的不断增多，也不断的演化，从最简单的顺序查找、到二分查找、到二叉树的查找。仔细想一下，这些数据结构都有自己的特定应用场景。接下来我们大概说一下这几个数据结构的特点，然后来看看数据库为什么普遍选择B树来作为自己的索引数据结构。 二叉查找树（Binary Search Tree） 我们先来看下比较平衡的二叉树（Binary Search Tree）： 对该二叉树的节点进行查找发现深度为1的节点的查找次数为1，深度为2的查找次数为2，深度为n的节点的查找次数为n，因此其平均查找次数为 (1+2+2+3+3+3) / 6 = 2.3次 这里有推荐两个比较好的算法的演示平台：二叉树的构造过程演示；二叉树的构造过程演示 我们可以在这里演示二叉树的构造和删改过程，我们不难发现，虽然在删除方面算法相对比较复杂，但是在查找、插入和删除的时候都比较快。但是它有个比较大的问题，二叉树的任意构造，会出现一种极端情况，如图： 这样二叉树，退化为线性表，导致树的高度过高，从而降低了查询效率。那么如何解决二叉查找树多次插入新节点而导致的不平衡,是不是让树尽可能平衡就行了，如何让树平衡了这就产生了平衡二叉查找树（AVL Tree）...<br>
+      <!-- <p><h4 id="背景介绍">背景介绍</h4> <p>不可否认的是，MySQL由于其性能高、成本低、可靠性好，已经成为最流行的开源数据库之一，随着MySQL的不断成熟，它也逐渐用于更多大规模网站和应用，国内大部分互联网公司在去IOE的过程中，用MySQL的居多，创业公司也大部分采用了MySQL。互联网的不断发展中，体验成为了企业决胜的一大要素，而体验有一个很重要的衡量指标就是影响速度。响应速度很大程度上瓶颈都在数据库的瓶颈，那极致的优化数据库的性能变得很重要。索引结构在Mysql的查询中起到了重要的作用，那了解其数据结构，并针对其优化变得异常重要。</p> <h4 id="索引的数据结构">索引的数据结构</h4> <p>我们知道，数据库查询是数据库最重要的功能之一。我们都希望查询数据的速度能够尽可能的块，因此数据库系统的设计者会从查询算法的角度进行优化。我们知道MYSQL索引是<code class="language-plaintext highlighter-rouge">帮助MySQL高效获取数据的数据结构。它的本质就是数据结构，单独存储在磁盘上，用它来提高数据查询的效率。</code>，那么我们需要保证他尽可能少的执行磁盘IO操作。数据结构随着应用场景的不断增多，也不断的演化，从最简单的顺序查找、到二分查找、到二叉树的查找。仔细想一下，这些数据结构都有自己的特定应用场景。接下来我们大概说一下这几个数据结构的特点，然后来看看数据库为什么普遍选择B树来作为自己的索引数据结构。</p> <p><strong>二叉查找树（Binary Search Tree）</strong></p> <p>我们先来看下比较平衡的二叉树（Binary Search Tree）：</p> <p><img src="/assets/images/pictures/2019-10-15-mysql_index/BinarySearchTree.png" alt="二叉树" style="zoom:50%" /></p> <p>对该二叉树的节点进行查找发现深度为1的节点的查找次数为1，深度为2的查找次数为2，深度为n的节点的查找次数为n，因此其平均查找次数为...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmanel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/tool/generator_unionstars/">如何通过脚手架来规范研发</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>软件架构面临的问题 Bob在在整洁架构中提到：软件架构的终极目标是，用最小的人力成本来满足构建和维护系统的需求 ，Eric Evans在领域驱动设计中也多次强调架构设计的重要。我们也常常看到的很多三年以上的工程领域模型混乱、架构分层不合理、项目工程边界划分混乱、重复功能多。导致这种现象的原因很多，最终的原因可能是人的问题，人的软件水准参差不齐，人员流动大等等很多元素，在我跟很多大厂的朋友聊天，他们也一致的反馈了很多一致的结果，业务系统代码的逐步腐化，很整洁的业务系统很少。 更多的，我们看到很多这样的现象，一个技术复杂度简单的系统，却需要很多人去维护，对于开发者而言要7*24小时的救火，对于管理者来言，简单的功能上线的投入越来越大，如何规避这种问题呢? 上面我们说这些问题是人引起的，那解决这些问题就要在人上去解决，如果你用心发现，你会发现这样一个问题，团队与团队之间的差距是巨大的，如果一个学习氛围浓厚的团队，他们的技术输出能力，沉淀能力与其它团队相比差距是巨大的。 是的，我要聊的就是建立大家的软件的审美，建立大家的热情，建立共同的约束、共同前行沉淀文化。我一直认为写代码、写作和绘画，所有这些创造的过程是基本类似的，第一位的是你要有正确的审美，第二你要有创造的热情，第三制定规约砥砺前行。最后慢慢沉淀思想的结晶和技术文化。人员的流动是控制不了的，但是思想的沉淀却如同给后边的人留下了巨人的肩膀。 如何解决这些问题 如何解决这些人的问题呢，我们可以通过招聘去招比自己更优秀的人，通过文化思想的相荡来提升大家的审美，也可以内部培养，但是更多的时候，这需要长期的建设，如何短时间内就形成一种积累呢，那就是工程纪律的建设。工程纪律可以参考性质的，比如阿里出的java开发手册以及附带的idea的检查工具；也可以是强制性的，比如在代码合并的时候增加代码规则检查，如果不通过不能进行分支合并或者上线。我们通过大量的实施发现这些宽松的或者强制的检查，虽然初期可能是不适的，但是日益积累对技术人员的影响却是巨大的，他实实在在影响了技术文化。 工程纪律的实施 我们发现一个问题，如果你让研发人原去看文档，他大多不能完全按文档的规范来，但是如果你给他一个开箱即用规范框架，并且提供相关约束的样例，他大多会按照这个样例进行粘贴和修改，从而保证了代码的统一和规范。此脚手架面向的是组织或者企业内部，他比开源的规范更加细致，并打包一些自研组件。但是脚手架的思路是相同的，沉淀好的东西，形成优秀的二方库，控制和约束三方库以及代码的书写规范。 下面是脚手架实现的约束内容，有些是通过例子来约束，有些通过内置的组件进行约束。 工程划分规范 比如一个电商系统我们首先去识别各个业务领域，找到各个上下文边界，划分出具体的系统。针对单个系统，我们根据系统职责的不同再进行层次的划分，这种层次的划分可以是通过system、module、package来进行，采用哪种形式，一般与该组织所处于的发展阶段相关，并不拘泥于一种划分标准。该脚手架提供了按功能进行工程创建的模板。按功能划分我们一个小的业务领域一般有如下工程拿一个支付里边的账务领域来说。面向后端我们一般要有一个服务中心，承载的是该工程的后端服务。面向商户我们一般要有一个商家管理端，面向支付公司公司运营我们一般要有一个运营管理端，面向用户我们要有一个门户，面向app我们一般要有一个app端，并且我们一般要有一个网关来对app端提供服务，如果提供一些远程调用的服务，如果接口不放在中心的话，我们还要有一个接口工程。这些工程所提供的功能不同模板不同，就名称而言，以上的工程类似于如下的命名。accounting-center accounting-shop accounting-man accounting-portal accounting-app accounting-gateway accounting-api，...<br>
+      <!-- <p><h4 id="软件架构面临的问题">软件架构面临的问题</h4> <p>Bob在在整洁架构中提到：<code class="language-plaintext highlighter-rouge">软件架构的终极目标是，用最小的人力成本来满足构建和维护系统的需求</code> ，Eric Evans在领域驱动设计中也多次强调架构设计的重要。我们也常常看到的很多三年以上的工程领域模型混乱、架构分层不合理、项目工程边界划分混乱、重复功能多。导致这种现象的原因很多，最终的原因可能是人的问题，人的软件水准参差不齐，人员流动大等等很多元素，在我跟很多大厂的朋友聊天，他们也一致的反馈了很多一致的结果，业务系统代码的逐步腐化，很整洁的业务系统很少。</p> <p>更多的，我们看到很多这样的现象，一个技术复杂度简单的系统，却需要很多人去维护，对于开发者而言要7*24小时的救火，对于管理者来言，简单的功能上线的投入越来越大，如何规避这种问题呢? 上面我们说这些问题是人引起的，那解决这些问题就要在人上去解决，如果你用心发现，你会发现这样一个问题，团队与团队之间的差距是巨大的，如果一个学习氛围浓厚的团队，他们的技术输出能力，沉淀能力与其它团队相比差距是巨大的。</p> <p>是的，我要聊的就是建立大家的软件的审美，建立大家的热情，建立共同的约束、共同前行沉淀文化。我一直认为写代码、写作和绘画，所有这些创造的过程是基本类似的，第一位的是你要有正确的审美，第二你要有创造的热情，第三制定规约砥砺前行。最后慢慢沉淀思想的结晶和技术文化。人员的流动是控制不了的，但是思想的沉淀却如同给后边的人留下了巨人的肩膀。</p> <h4 id="如何解决这些问题">如何解决这些问题</h4> <p>如何解决这些人的问题呢，我们可以通过招聘去招比自己更优秀的人，通过文化思想的相荡来提升大家的审美，也可以内部培养，但是更多的时候，这需要长期的建设，如何短时间内就形成一种积累呢，那就是工程纪律的建设。工程纪律可以参考性质的，比如阿里出的java开发手册以及附带的idea的检查工具；也可以是强制性的，比如在代码合并的时候增加代码规则检查，如果不通过不能进行分支合并或者上线。我们通过大量的实施发现这些宽松的或者强制的检查，虽然初期可能是不适的，但是日益积累对技术人员的影响却是巨大的，他实实在在影响了技术文化。</p> <h4 id="工程纪律的实施">工程纪律的实施</h4> <p>我们发现一个问题，如果你让研发人原去看文档，他大多不能完全按文档的规范来，但是如果你给他一个开箱即用规范框架，并且提供相关约束的样例，他大多会按照这个样例进行粘贴和修改，从而保证了代码的统一和规范。此脚手架面向的是组织或者企业内部，他比开源的规范更加细致，并打包一些自研组件。但是脚手架的思路是相同的，沉淀好的东西，形成优秀的二方库，控制和约束三方库以及代码的书写规范。</p> <p>下面是脚手架实现的约束内容，有些是通过例子来约束，有些通过内置的组件进行约束。</p> <h4 id="工程划分规范">工程划分规范</h4> <p>比如一个电商系统我们首先去识别各个业务领域，找到各个上下文边界，划分出具体的系统。针对单个系统，我们根据系统职责的不同再进行层次的划分，这种层次的划分可以是通过system、module、package来进行，采用哪种形式，一般与该组织所处于的发展阶段相关，并不拘泥于一种划分标准。该脚手架提供了按功能进行工程创建的模板。按功能划分我们一个小的业务领域一般有如下工程拿一个支付里边的账务领域来说。面向后端我们一般要有一个服务中心，承载的是该工程的后端服务。面向商户我们一般要有一个商家管理端，面向支付公司公司运营我们一般要有一个运营管理端，面向用户我们要有一个门户，面向app我们一般要有一个app端，并且我们一般要有一个网关来对app端提供服务，如果提供一些远程调用的服务，如果接口不放在中心的话，我们还要有一个接口工程。这些工程所提供的功能不同模板不同，就名称而言，以上的工程类似于如下的命名。<code...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmanel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/mysql/mysql_lock_in_action/">Mysql 死锁问题分析</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>背景介绍 我们在进行互联网应用开发的时候，高并发场景下，很容易遇到死锁的问题，我们从jdbc抛出的死锁异常中，很难看出死锁发生的具体原因，jdbc只是给了一个死锁异常， 但是并没有抛出导致死锁的原因，这是因为mysql本身，发生死锁的时候就没有抛出更多的错误信息。MySQL/InnoDB的加锁分析，对应用开发来说也是比较复杂的，因为 锁这一块的复杂性，很多关于数据库锁的文章，并没有实际的验证，而是似是而非猜测性的，有一些误导。这里是对一个insert和update同一索引数据导致的死锁案例的 分析过程，主要是描述一个解决问题的思路，供大家参考。 发现问题 X同学在生产上发现了如下的死锁异常，想让我一起排查下，登陆服务器后，看到了类似如下的异常信息： 在分库:[ worker_10~~&gt;jdbc:mysql://hostname:3306/dbname?user=user ], 执行SQL:[ UPDATE tablename SET col1 = col1 + 20, modified_date...<br>
+      <!-- <p><h4 id="背景介绍">背景介绍</h4> <p>我们在进行互联网应用开发的时候，高并发场景下，很容易遇到死锁的问题，我们从jdbc抛出的死锁异常中，很难看出死锁发生的具体原因，jdbc只是给了一个死锁异常， 但是并没有抛出导致死锁的原因，这是因为mysql本身，发生死锁的时候就没有抛出更多的错误信息。MySQL/InnoDB的加锁分析，对应用开发来说也是比较复杂的，因为 锁这一块的复杂性，很多关于数据库锁的文章，并没有实际的验证，而是似是而非猜测性的，有一些误导。这里是对一个insert和update同一索引数据导致的死锁案例的 分析过程，主要是描述一个解决问题的思路，供大家参考。</p> <h4 id="发现问题">发现问题</h4> <p>X同学在生产上发现了如下的死锁异常，想让我一起排查下，登陆服务器后，看到了类似如下的异常信息：</p> <div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="err">在分库</span><span class="p">:[</span> <span class="n">worker_10</span><span class="o">~~&gt;</span><span class="n">jdbc</span><span...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmanel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/mysql/pay-step-5-accounting/">支付系统-账务</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>前置学习 在开发和维护账务系统前，务必请学习以下会计基础知识。 会计主体 定义：会计工作为之服务的特定单位或组织 ，又称会计个体或会计实体 。 分类： 名称 解释 资产 是指过去的交易 、事项形成并由企业拥有或控制的资源 ，该资源预期会给企业带来经济利益 。 负债 是指过去的交易或事项形成的现时义务 ，履行该义务预期会导致经济利益流出企业 。 所有者权益 是指所有者在企业资产中享有的经济利益...<br>
+      <!-- <p><h4 id="前置学习">前置学习</h4> <p><code class="language-plaintext highlighter-rouge">在开发和维护账务系统前，务必请学习以下会计基础知识。</code></p> <p><code class="language-plaintext highlighter-rouge">会计主体</code></p> <p>定义：会计工作为之服务的特定单位或组织 ，又称会计个体或会计实体 。</p> <p><code class="language-plaintext highlighter-rouge">分类：</code></p> <table> <thead> <tr> <th>名称</th> <th>解释</th> </tr>...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmanel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
 
 <section class="panel panel-default portlet-item">
   <header class="panel-heading"><strong>Article List</strong></header>
@@ -154,10 +242,10 @@
   </span>
 </div>
   <div class="media-body">
-    <a href="/tool/stability-monitor/" class="h5 text-success">如何快速基于普罗米修斯实现系统可观测性</a>
+    <a href="/tool/stability-monitor/" class="h5 text-success">Monitor With Prometheus</a>
     <small class="block m-t-xs">
       
-        archtecture
+        architecture
         , 
       
         refactoring
@@ -305,6 +393,171 @@
   </div>
 </article>
 
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/microservices_arc/" class="h5 text-success">微服务架构设计模式</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-dropbox fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/mysql/mysql_index/" class="h5 text-success">Mysql 索引原理与Mysql优化</a>
+    <small class="block m-t-xs">
+      
+        index
+        , 
+      
+        mysql
+        , 
+      
+        database
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/tool/generator_unionstars/" class="h5 text-success">如何通过脚手架来规范研发</a>
+    <small class="block m-t-xs">
+      
+        archtecture
+        , 
+      
+        refactoring
+        , 
+      
+        tool
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-dropbox fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/mysql/mysql_lock_in_action/" class="h5 text-success">Mysql 死锁问题分析</a>
+    <small class="block m-t-xs">
+      
+        deadlock
+        , 
+      
+        mysql
+        , 
+      
+        database
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-dropbox fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/mysql/pay-step-5-accounting/" class="h5 text-success">支付系统-账务</a>
+    <small class="block m-t-xs">
+      
+        index
+        , 
+      
+        mysql
+        , 
+      
+        database
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
 
     
   </section>
@@ -320,13 +573,9 @@
         <li class="active"><a href="/page1">1</a></li>
       
     
-      
-        <li><a href="/page2">2</a></li>
-      
-    
 
     
-      <li><a href="/page2"><i class="fa fa-chevron-right"></i></a></li>
+      <li><a href="#"><i class="fa fa-chevron-right"></i></a></li>
     
   </ul>
 </div>
@@ -398,6 +647,8 @@
   
     <a href="/tags/#tool" class="label bg-success">Tool</a>
   
+    <a href="/tags/#architecture" class="label bg-success">Architecture</a>
+  
 </div>
 
   <h5 class="font-semibold">Recent Posts</h5>
@@ -414,7 +665,7 @@
   </span>
 </div>
       <div class="media-body">
-        <a href="/tool/stability-monitor/" class="font-semibold">如何快速基于普罗米修斯实现系统可观测性</a>
+        <a href="/tool/stability-monitor/" class="font-semibold">Monitor With Prometheus</a>
         <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmanel">Victor</a> 11 Jan 2025</div>
       </div>
     </article>
