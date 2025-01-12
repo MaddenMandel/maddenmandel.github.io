@@ -101,22 +101,6 @@
 .post-sum table > thead th:last-child {
   border-right: none;
 }
-body {
-  font-family: 'Merriweather', serif;
-  line-height: 1.6;
-  font-size: 18px;
-  color: #333;
-}
-
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Merriweather', serif;
-  font-weight: 700;
-}
-
-p, ul, ol, blockquote, table {
-  font-family: 'Merriweather', serif;
-  font-weight: 400;
-}
 /* 复制按钮样式 */
 .copy-button {
   position: absolute;
