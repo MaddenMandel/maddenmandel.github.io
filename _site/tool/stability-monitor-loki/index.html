@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+  <html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>maddenmanel - 如何快速基于普罗米修斯实现系统可观测性</title>
+    <meta name="description" content="">
+
+    <!-- 引入 Merriweather 字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/assets/css/bootstrap.css">
+    <link rel="stylesheet" href="/assets/css/animate.css">
+    <link rel="stylesheet" href="/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/css/font.css">
+    <link rel="stylesheet" href="/assets/css/landing.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+    <link rel="stylesheet" href="/assets/css/highlight.css">
+    <link rel="stylesheet" href="/assets/css/custom.css">
+
+    <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
+    
+    <!-- Include the Mermaid.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+    
+    <script>
+      // Initialize Mermaid.js
+      mermaid.initialize({startOnLoad:true});
+    </script>
+  </head>
+</html>
+  <body>
+    <header id="header" class="navbar navbar-fixed-top bg-white box-shadow b-b b-light"  data-spy="affix" data-offset-top="1">
+  <div class="container">
+    <div class="navbar-header">
+      <a href="/" class="navbar-brand"><img src="/assets/images/logo.png" class="m-r-sm"><span class="text-muted">Notebook</span></a>
+      <button class="btn btn-link visible-xs" type="button" data-toggle="collapse" data-target=".navbar-collapse">
+        <i class="fa fa-bars"></i>
+      </button>
+    </div>
+    <div class="collapse navbar-collapse">
+      <ul class="nav navbar-nav navbar-right">
+        <li><a href="/">Home</a></li>
+        <li><a href="/tags/">Tags</a></li>
+        <li><a href="/feed.xml">RSS</a></li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+
+    <section id="content">
+      <div class="container m-t-lg m-b-lg">
+        <div class="row">
+          <div class="col-sm-12">
+            <div class="blog-post">
+              <div class="post-item">
+                <div class="caption wrapper-lg">
+                  <!-- Post Title -->
+                  <h4 class="post-title">Install Loki</h4>
+                  
+                  <!-- Progress bar (if needed) -->
+                  <div class="progress progress-xxs m-t-sm">
+                    <div class="progress-bar progress-bar-success" data-toggle="tooltip" style="width: 100%"></div>
+                  </div>
+
+                  <!-- Post Content -->
+                  <div class="post-sum">
+                    <h1 id="install-loki">Install Loki</h1>
+
+<p>Owner: Xuegang Zhang</p>
+
+<p>To install <strong>Loki</strong> version <strong>3.1.2</strong> on a Linux system, follow the steps below. Loki is an open-source log aggregation system developed by Grafana Labs, and you can install it using either pre-built binaries, Docker, or through package managers. We’ll use pre-built binaries for this guide.</p>
+
+<h2 id="step-1-download-the-loki-binary">Step 1: Download the Loki Binary</h2>
+
+<ol>
+  <li>Go to the <a href="https://github.com/grafana/loki/releases">Loki GitHub releases page</a> and find version <strong>3.1.2</strong>. Or use <code class="language-plaintext highlighter-rouge">wget</code> to directly download the binary:</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code> <span class="nb">sudo </span>wget https://github.com/grafana/loki/releases/download/v3.1.2/loki-linux-amd64.zip
+</code></pre></div></div>
+
+<ol>
+  <li>Once downloaded, extract the <code class="language-plaintext highlighter-rouge">.zip</code> file:</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code> unzip loki-linux-amd64.zip
+</code></pre></div></div>
+
+<p>This will create a folder containing the Loki binary (<code class="language-plaintext highlighter-rouge">loki-linux-amd64</code>).</p>
+
+<h2 id="step-2-move-loki-to-a-system-directory">Step 2: Move Loki to a System Directory</h2>
+
+<ol>
+  <li>Move the extracted binary to a directory in your PATH (e.g., <code class="language-plaintext highlighter-rouge">/usr/local/bin</code>):</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo mv </span>loki-linux-amd64 /usr/local/bin/loki
+</code></pre></div></div>
+
+<ol>
+  <li>Ensure the binary is executable:</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo chmod</span> +x /usr/local/bin/loki
+</code></pre></div></div>
+
+<h2 id="step-3-create-a-configuration-file-optional">Step 3: Create a Configuration File (Optional)</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+  332  <span class="nb">sudo mkdir</span> <span class="nt">-p</span> /etc/loki
+  <span class="nb">sudo </span>vim /etc/loki/local-config.yaml
+</code></pre></div></div>
+
+<ol>
+  <li>local-config.yaml content</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auth_enabled: <span class="nb">false
+
+</span>server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+
+common:
+  path_prefix: /loki/data  <span class="c"># 设置 Loki 数据的路径前缀，确保所有的路径都在这个目录下</span>
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/index
+    cache_location: /loki/cache
+    resync_interval: 10m
+  filesystem:
+    directory: /loki/chunks
+
+limits_config:
+  retention_period: 90d  <span class="c"># 日志保留时间</span>
+  allow_structured_metadata: <span class="nb">false</span>  <span class="c"># 禁用结构化元数据</span>
+
+schema_config:
+  configs:
+    - from: 2020-10-21
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h  <span class="c"># 设置索引周期为 24 小时</span>
+
+compactor:
+  working_directory: /loki/compactor  <span class="c"># compactor 存储路径</span>
+
+table_manager:
+  retention_deletes_enabled: <span class="nb">true
+  </span>retention_period: 90d
+
+ingester:
+  lifecycler:
+    ring:
+      kvstore:
+        store: memberlist
+      replication_factor: 1
+  chunk_target_size: 1048576  <span class="c"># 每个 chunk 的目标大小</span>
+  max_chunk_age: 1h  <span class="c"># chunk 最大生命周期</span>
+
+memberlist:
+  join_members: <span class="o">[]</span>  <span class="c"># 单节点配置为空列表，不需要加入集群</span>
+</code></pre></div></div>
+
+<ol>
+  <li>Config the category you want loki logfile save</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  334  <span class="nb">sudo mkdir</span> <span class="nt">-p</span> /var/loki/chunks /var/loki/index /var/loki/cache /var/loki/compactor
+  335  <span class="nb">sudo chown</span> <span class="nt">-R</span> loki:loki /var/loki
+  336  <span class="nb">sudo </span>vim /etc/systemd/system/loki.service
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="o">[</span>Unit]
+<span class="nv">Description</span><span class="o">=</span>Loki
+<span class="nv">Documentation</span><span class="o">=</span>https://grafana.com/docs/loki/latest/
+<span class="nv">After</span><span class="o">=</span>network.target
+
+<span class="o">[</span>Service]
+<span class="nv">ExecStart</span><span class="o">=</span>/usr/local/bin/loki <span class="nt">-config</span>.file<span class="o">=</span>/etc/loki/local-config.yaml
+<span class="nv">Restart</span><span class="o">=</span>on-failure
+<span class="nv">User</span><span class="o">=</span>delian
+<span class="nv">Group</span><span class="o">=</span>delian
+
+<span class="o">[</span>Install]
+<span class="nv">WantedBy</span><span class="o">=</span>multi-user.target
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>03  <span class="nb">sudo mkdir</span> <span class="nt">-p</span> /loki/index
+  504  <span class="nb">sudo mkdir</span> <span class="nt">-p</span> /loki/cache
+  505  <span class="nb">sudo mkdir</span> <span class="nt">-p</span> /loki/chunks
+  506  <span class="nb">sudo mkdir</span> <span class="nt">-p</span> /loki/compactor
+  507  <span class="nb">sudo chown</span> <span class="nt">-R</span> loki:loki/loki/
+  508  <span class="nb">sudo chown</span> <span class="nt">-R</span> delian:delian /loki/
+  509  <span class="nb">sudo chown </span>delian:delian /usr/local/bin/loki
+  510  <span class="nb">sudo </span>vim /etc/systemd/system/loki.service
+  511  <span class="nb">sudo </span>systemctl daemon-reload
+  512  <span class="nb">sudo </span>systemctl <span class="nb">enable </span>loki
+  513  <span class="nb">sudo </span>systemctl start loki
+  514  <span class="nb">sudo </span>systemctl status loki
+  515  <span class="nb">sudo </span>journalctl <span class="nt">-u</span> loki <span class="nt">-f</span>
+  516  loki <span class="nt">--version</span>
+  517  <span class="nb">sudo </span>journalctl <span class="nt">-u</span> loki <span class="nt">-f</span>
+</code></pre></div></div>
+
+<h2 id="install-promtail">Install Promtail</h2>
+
+<ol>
+  <li>First you can down load the Promtail zip file from github,https://github.com/grafana/loki/releases.</li>
+</ol>
+
+<p>For example you download the 3.1.2 version</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>wget https://github.com/grafana/loki/releases/download/v2.8.0/promtail-linux-amd64.zip
+</code></pre></div></div>
+
+<ol>
+  <li>Second you unzip file, and move it the suit place.</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>unzip promtail-linux-amd64.zip
+<span class="nb">sudo mv </span>promtail-linux-amd64 /usr/local/bin/promtail
+</code></pre></div></div>
+
+<ol>
+  <li>Grant the promtail execute privilage</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo chmod</span> +x /usr/local/bin/promtail
+</code></pre></div></div>
+
+<ol>
+  <li>Create the Promtail config file</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo mkdir</span> <span class="nt">-p</span> /etc/promtail
+<span class="nb">sudo </span>vim /etc/promtail/promtail-config.yaml
+</code></pre></div></div>
+
+<p>this file config is my use;</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://192.168.18.58:3100/loki/api/v1/push
+    batchsize: 1048576  <span class="c"># 批量大小，单位字节（1MB）</span>
+    batchwait: 2s  <span class="c"># 批量发送间隔</span>
+
+scrape_configs:
+  - job_name: dl-underwriting-rule-db
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: dl-underwriting-rule-db
+          __path__: /var/log/dl-underwriting-rule-db/<span class="k">*</span>log
+
+  - job_name: dl-underwriting-rule
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: dl-underwriting-rule
+          __path__: /var/log/dl-underwriting-rule/<span class="k">*</span>log
+
+  - job_name: dl-underwriting-rule-hh
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: dl-underwriting-rule-hh
+          __path__: /var/log/dl-underwriting-rule-hh/<span class="k">*</span>log
+</code></pre></div></div>
+
+<ol>
+  <li>Create Promtail service file</li>
+</ol>
+
+<p>In order to Promtail can start as the system start, we need create a systemd service file.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>vim /etc/systemd/system/promtail.service
+
+<span class="o">[</span>Unit]
+<span class="nv">Description</span><span class="o">=</span>Promtail - A log collection agent <span class="k">for </span>Loki
+<span class="nv">Documentation</span><span class="o">=</span>https://grafana.com/docs/loki/latest/clients/promtail/
+<span class="nv">After</span><span class="o">=</span>network.target
+
+<span class="o">[</span>Service]
+<span class="nv">ExecStart</span><span class="o">=</span>/usr/local/bin/promtail <span class="nt">-config</span>.file<span class="o">=</span>/etc/promtail/promtail-config.yaml
+<span class="nv">Restart</span><span class="o">=</span>on-failure
+<span class="nv">User</span><span class="o">=</span>delian
+<span class="nv">Group</span><span class="o">=</span>delian
+
+<span class="o">[</span>Install]
+<span class="nv">WantedBy</span><span class="o">=</span>multi-user.target
+</code></pre></div></div>
+
+<ol>
+  <li>Start the Promtail service</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>systemctl daemon-reload
+<span class="nb">sudo </span>systemctl start promtail
+<span class="nb">sudo </span>systemctl <span class="nb">enable </span>promtail 
+<span class="nb">sudo </span>systemctl status promtail
+
+</code></pre></div></div>
+
+
+                  </div>
+
+                  <!-- Utterances Comments Section -->
+                  <div class="comments-section">
+                    <h4>Comments</h4>
+                    <script src="https://utteranc.es/client.js"
+                            repo="maddenmanel/maddenmanel.github.io"
+                            issue-term="pathname"
+                            theme="github-light"
+                            crossorigin="anonymous"
+                            async>
+                    </script>
+                  </div>
+
+                  <!-- Author and Metadata Information -->
+                  <section class="panel panel-default">
+                    <div class="panel-body">
+                      <a href="https://github.com/maddenmanel" class="thumb pull-right m-l">
+                        <img src="/assets/images/avatar.png" class="img-circle">
+                      </a>
+                      <div class="clear">
+                        <p>
+                          <small class="block text-muted">
+                            
+                              <a href="https://github.com/maddenmanel" class="text-info">@XueGang Zhang</a>
+                            <i class="fa fa-clock-o icon-muted"></i> Jan 12, 2025
+                            
+                          </small>
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                </div> <!-- End of Post Item -->
+              </div> <!-- End of Caption -->
+            </div> <!-- End of Blog Post -->
+          </div> <!-- End of Column -->
+        </div> <!-- End of Row -->
+      </div> <!-- End of Container -->
+    </section> <!-- End of Content Section -->
+
+  </body>
+</html>

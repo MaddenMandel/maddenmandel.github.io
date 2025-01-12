@@ -241,7 +241,7 @@ a:hover .caret-white {
   padding: 6px 8px;
 }
 .nav .avatar {
-  width: 30px;
+  width: 10px;
   margin-top: -5px;
   margin-right: 5px;
 }
@@ -1087,7 +1087,7 @@ body.container {
     padding-bottom: 10px;
   }
   .nav-user .avatar {
-    width: 160px !important;
+    width: 80px !important;
     float: none !important;
     display: block;
     margin: 20px auto;

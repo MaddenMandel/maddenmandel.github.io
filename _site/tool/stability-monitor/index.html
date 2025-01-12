@@ -60,7 +60,7 @@
               <div class="post-item">
                 <div class="caption wrapper-lg">
                   <!-- Post Title -->
-                  <h4 class="post-title">Monitor With Prometheus</h4>
+                  <h4 class="post-title">How to Quickly Implement System Observability Based on Prometheus</h4>
                   
                   <!-- Progress bar (if needed) -->
                   <div class="progress progress-xxs m-t-sm">
@@ -228,21 +228,21 @@
 </ul>
 <div class="mermaid">
 mindmap
-  Root((Memory Usage in Java Processes))
-    JVM Memory
-      Heap Memory
-        Young Generation
-        Old Generation
-      Off-Heap Memory
-        Metaspace
-        Compressed Class Space
-        JVM Thread Stack
-        Native Thread Stack
-        Code Cache
-        Direct Buffer
-    Non-JVM Memory
-      Native Runtime Libraries
-      JNI Native Code
+  root((Java进程占用内存))
+    JVM内存
+      堆内存
+        年轻代
+        老年代
+      堆外内存
+        元空间
+        压缩类空间
+        虚拟机线程栈
+        本地线程栈
+        代码缓冲区
+        直接缓冲
+    非JVM内存
+      本地运行库
+      JNI本地代码 
 </div>
 
 <h4 id="host-monitoring">Host Monitoring</h4>
@@ -304,6 +304,9 @@ mindmap
 <h4 id="error-code-monitoring">Error Code Monitoring</h4>
 
 <p>For core business systems, such as payment systems, error code monitoring is essential.</p>
+
+<p>Here’s how to install Prometheus step by step in English. If you use the docker you can use this to setup, this is the easy way. <a href="https://github.com/maddenmanel/springboot-prometheus-grafana">springboot-promethenus-grafana</a>.</p>
+
 
                   </div>
 

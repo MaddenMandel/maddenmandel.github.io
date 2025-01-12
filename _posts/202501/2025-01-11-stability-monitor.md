@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Monitor With Prometheus"
+title:  "How to Quickly Implement System Observability Based on Prometheus"
 date:   2025-01-11 12:00:00
 
 categories: tool
@@ -152,21 +152,21 @@ JVM monitoring can track the following metrics:
     - Number of threads in waiting state
 <div class="mermaid">
 mindmap
-  Root((Memory Usage in Java Processes))
-    JVM Memory
-      Heap Memory
-        Young Generation
-        Old Generation
-      Off-Heap Memory
-        Metaspace
-        Compressed Class Space
-        JVM Thread Stack
-        Native Thread Stack
-        Code Cache
-        Direct Buffer
-    Non-JVM Memory
-      Native Runtime Libraries
-      JNI Native Code
+  root((Java进程占用内存))
+    JVM内存
+      堆内存
+        年轻代
+        老年代
+      堆外内存
+        元空间
+        压缩类空间
+        虚拟机线程栈
+        本地线程栈
+        代码缓冲区
+        直接缓冲
+    非JVM内存
+      本地运行库
+      JNI本地代码 
 </div>
 
 #### Host Monitoring
@@ -210,3 +210,8 @@ View SQL call analysis to understand SQL call patterns in applications.
 #### Error Code Monitoring
 
 For core business systems, such as payment systems, error code monitoring is essential.
+
+Here’s how to install Prometheus step by step in English. If you use the docker you can use this to setup, this is the easy way. [springboot-promethenus-grafana](https://github.com/maddenmanel/springboot-prometheus-grafana). 
+
+
+
