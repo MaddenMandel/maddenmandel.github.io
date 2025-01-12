@@ -1,8 +1,8 @@
 # Site settings
-title: "maddenmandel"
+title: "maddenmanel"
 baseurl: "" # the subpath of your site, e.g. /blog/
-url: "https://maddenmandel.github.io" # the base hostname & protocol for your site
-github_username: maddenmandel
+url: "https://maddenmanel.github.io" # the base hostname & protocol for your site
+github_username: maddenmanel
 
 timezone: Beijing
 plugins: ['jekyll-paginate']
@@ -20,7 +20,7 @@ paginate: 5
 
 github: [metadata]
 
-githubID: maddenmandel
-repo: maddenmandel.github.io
+githubID: maddenmanel
+repo: maddenmanel.github.io
 ClientID: 264a95d2f3b06c2aed0a
 ClientSecret: 55a241c0c1220ea55de6fcc2fdc77dfd4db3378d
