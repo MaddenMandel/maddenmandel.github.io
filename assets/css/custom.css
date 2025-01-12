@@ -101,3 +101,53 @@
 .post-sum table > thead th:last-child {
   border-right: none;
 }
+body {
+  font-family: 'Merriweather', serif;
+  line-height: 1.6;
+  font-size: 18px;
+  color: #333;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Merriweather', serif;
+  font-weight: 700;
+}
+
+p, ul, ol, blockquote, table {
+  font-family: 'Merriweather', serif;
+  font-weight: 400;
+}
+/* 复制按钮样式 */
+.copy-button {
+  position: absolute;
+  top: 5px;
+  right: 10px;
+  background: #FFD700; /* 明亮的金色背景 */
+  color: #073a30; /* 深色文本 */
+  border: none;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 4px;
+  opacity: 0.9;
+  transition: background 0.3s ease, color 0.3s ease;
+  z-index: 10; /* 确保按钮在上层 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+/* 鼠标悬停时的样式 */
+.copy-button:hover {
+  background: #FFA500; /* 更亮的橙色背景 */
+  color: #ffffff; /* 白色文本 */
+}
+
+/* 已复制状态 */
+.copy-button.copied {
+  background: #32CD32; /* 绿色背景 */
+  color: #ffffff; /* 白色文本 */
+  cursor: default;
+}
+

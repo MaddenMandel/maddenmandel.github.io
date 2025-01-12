@@ -5,8 +5,8 @@
     <description></description>
     <link>http://localhost:4000/</link>
     <atom:link href="http://localhost:4000/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Sun, 12 Jan 2025 18:16:00 +0800</pubDate>
-    <lastBuildDate>Sun, 12 Jan 2025 18:16:00 +0800</lastBuildDate>
+    <pubDate>Sun, 12 Jan 2025 20:33:05 +0800</pubDate>
+    <lastBuildDate>Sun, 12 Jan 2025 20:33:05 +0800</lastBuildDate>
     <generator>Jekyll v3.10.0</generator>
     
       <item>
@@ -279,7 +279,7 @@ scrape_configs:
       </item>
     
       <item>
-        <title>How to Quickly Implement System Observability Based on Prometheus</title>
+        <title>Monitor With Prometheus</title>
         <description>&lt;h3 id=&quot;background&quot;&gt;Background&lt;/h3&gt;
 &lt;p&gt;A significant part of system stability is supported by monitoring. Large companies usually have well-established monitoring and operations teams to build the monitoring infrastructure. From a layered perspective, monitoring generally includes the following aspects:&lt;/p&gt;
 &lt;table&gt;
@@ -517,6 +517,8 @@ mindmap
 &lt;p&gt;For core business systems, such as payment systems, error code monitoring is essential.&lt;/p&gt;
 
 &lt;p&gt;Here’s how to install Prometheus step by step in English. If you use the docker you can use this to setup, this is the easy way. &lt;a href=&quot;https://github.com/maddenmanel/springboot-prometheus-grafana&quot;&gt;springboot-promethenus-grafana&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;And the below is the tutu&lt;/p&gt;
 
 </description>
         <pubDate>Sat, 11 Jan 2025 20:00:00 +0800</pubDate>

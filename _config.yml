@@ -21,9 +21,7 @@ kramdown:
 disqus:
   shortname: your-disqus-shortname
 
-# Pagination settings
 paginate: 10
-paginate_path: "/page/:num/"
 
 github: [metadata]
 

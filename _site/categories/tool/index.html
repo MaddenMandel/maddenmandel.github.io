@@ -22,14 +22,16 @@
     <link rel="stylesheet" href="/assets/css/custom.css">
 
     <link rel="canonical" href="http://localhost:4000/tool/stability-monitor/">
-    
-    <!-- Include the Mermaid.js library -->
+   <!-- Include the Mermaid.js library -->
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
     
     <script>
       // Initialize Mermaid.js
       mermaid.initialize({startOnLoad:true});
     </script>
+
+        <!-- 引入复制按钮的 JavaScript -->
+        <script src="/assets/js/copy-button.js"></script>
   </head>
 </html>
   <body>
@@ -103,7 +105,7 @@
   </span>
 </div>
   <div class="media-body">
-    <a href="/tool/stability-monitor/" class="h5 text-success">How to Quickly Implement System Observability Based on Prometheus</a>
+    <a href="/tool/stability-monitor/" class="h5 text-success">Monitor With Prometheus</a>
     <small class="block m-t-xs">
       
         architecture
@@ -330,23 +332,55 @@
           </div>
         </div>
         <div class="col-sm-3">
-  <h5 class="font-semibold">About me</h5>
+  <!-- 在头部引用 FontAwesome 图标库 -->
+<head>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+</head>
+
+<h5 class="font-semibold">About me</h5>
 <div class="line line-dashed"></div>
 <div class="m-b-lg">
     <span class="thumb-sm avatar m-r-sm m-t-xs">
-        <img src="/assets/images/avatar.png" class="img-circle">
+        <img src="/assets/images/avatar.png" class="img-circle blur-effect">
     </span>
     <p class="clear text-sm">
-        Name：Madden Zhang<br/>
+        Name: Madden Zhang<br/>
         Business Domain: E-commerce, FinTech<br/>
         Technical Domain: Distributed Systems, Microservices<br/>
         Location: Beijing<br/>
-        Email：<a href=mailto:zhangxuegang@gmail.com>zhangxuegang@gmail.com</a><br/>
+
+        <!-- 使用图标替代文字链接 -->
+        <a href="https://github.com/maddenmanel/" target="_blank">
+            <i class="fab fa-github"></i> maddenmanel
+        </a><br/>
+        
+        <a href="https://www.linkedin.com/in/xuegang-zhang/" target="_blank">
+            <i class="fab fa-linkedin"></i> xuegang-zhang 
+        </a><br/>
+        
+        <a href="https://x.com/V3wJKOhFl6maVQ9" target="_blank">
+            <i class="fab fa-twitter"></i> Maddon Rechard
+        </a><br/>
+        <!-- 使用邮件图标 -->
+        <a href="mailto:zhangxuegang@gmail.com">
+            <i class="fas fa-envelope"></i> zhangxuegang@gmail.com
+        </a>
     </p>
     <span class="thumb-sm m-r-sm m-t-xs">
+        Public WeChat: <span style="font-weight: bold;">Daily Thought</span><br/>
         <img src="/assets/images/subscription.png">
     </span>
 </div>
+
+<style>
+    .blur-effect {
+        filter: blur(8px);
+        transition: filter 0.3s ease;
+    }
+    .blur-effect:hover {
+        filter: blur(0);
+    }
+</style>
   <h5 class="font-semibold">Categories</h5>
 <div class="line line-dashed"></div>
 <ul class="list-unstyled">
@@ -427,7 +461,7 @@
   </span>
 </div>
       <div class="media-body">
-        <a href="/tool/stability-monitor/" class="font-semibold">How to Quickly Implement System Observability Based on Prometheus</a>
+        <a href="/tool/stability-monitor/" class="font-semibold">Monitor With Prometheus</a>
         <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmanel">Victor</a> 11 Jan 2025</div>
       </div>
     </article>
