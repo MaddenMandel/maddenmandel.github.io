@@ -48,23 +48,6 @@
 <!-- old home -->
 <div class="post-item" style="display:none;">
   <div class="caption wrapper-lg">
-    <h4 class="post-title"><a class="post-link" href="/tool/hot_account/">如何识别与解决热点账户</a></h4>
-    <div class="line line-lg"></div>
-    <div class="post-sum">
-      <p>背景介绍 账务系统作为互联金融领域的基石系统，承载着所有账户的资金管控，那保证它的稳定可靠是系统建设的第一要务，我们知道在数据库中某个账户余额是一行记录，如果一个大商户每天出入金巨大，那就涉及到对该行记录频繁的更新，这对数据库是巨大的考验，接下来我就和大家一起聊一聊怎么去解决和规避这种频繁的操作问题。 今天分享的是关于如何解决互联网热点账户的问题。互联网解决了人们交易活动地域上的限制，产生了很多巨无霸的商家，对这些巨无霸商家交易账户的操作就成了热点操作，这些热点操作主要体现在账户的明细和余额上面，而这两个操作的更新又是在一个事务中进行的，但是对余额操作是稀缺的资源，所以更新余额就成了瓶颈。今天我和大家一起来聊一下如何解决和规避热点账户的问题（图1）。 图1 三户模型 如图所示，上面是某个商户的交易数据，假设4个交易数据同时过来，它们同时对明细进行插入，然后更新余额，这个时候我们可以看到，因为他们更新的是同一个账户的余额，所以这个时候，需要竞争对该行的操作权。该行成为热点行。这也就是我们上边所说的热点账户问题。 我们上边聊到了账户，那我们先来看一下什么是账户呢？支付行业的账户体系一般是基于三户模型，它们分别是客户、用户和账户。客户一般来说是一个比较社会化的概念，比如一个自然人和一个法人都可以被称之为客户，在系统中我们会将客户划分为个人和企业；用户是指客户在系统中登录账号的相关信息：包括账号、密码、角色、权限这些；账户是指我们为客户进行交易活动而开设的虚拟账户，主要与交易记账相关，我们说的热点账户，指的就是这个账户（图2）。 图2 通过这个图我们可以看出，客户、用户、和账户之间的关系。一般一个客户，可以注册多个用户，也可以在不同的业务下开通多个账户，所以客户和用户以及客户与账户之间都是一个1对多的关系。一个用户呢可以操作多个账户，反过来多个账户也可以同时被一个用户操作，用户和账户之间是多对多的关系。 热点账户的分 那现在我们知道什么是账户和热点账户了，那热点账户有哪些分类呢，一般我们按资金发生的方向来分，可以分为加频账户、减频账户和双频账户，顾名思义，加频账户就是入金比较频繁的账户，比如募捐账户是典型的加频账户，这次新冠病毒的疫情组织的一些筹款活动，大家的爱国热情特别高，募捐的账户接受大量的捐款信息。假设用户的付款方式都是通过在第三方支付里开设的虚拟账户进行出款,募捐账户的金额到达目标金额后进行结算，那我们看一下他的资金流。(图3) 图3 减频/双频账户 我们看到，这个时候大量的资金同时进入受款商户的待清算户，这个受款商户的待清算户成为加频热点账户。 与加频账户对应的就是减频账户，比如给员工发公司的账户、平台在第三方支付公司为增加用户体验设置的退款垫资户，这些都是典型的减频账户。双频账户也比较好理解，比如是电商平台性质的商户在支付公司的一个资金流(图4)。 图4 用户在平台进行下单购物，这个时候的该用户的钱，会先收取到该平台在第三方支付公司开设的内部户，然后转账给该平台的商户。这个时候该平台在第三方支付开设的内部户，就是一个双频账户。 解决热点账户的问题 限流 介绍完上边的几类账户，现在进入我今天的重点部分，那就是如何去解决这些热点账户的问题？这里我介绍一下支付公司常用的几种方法。我们上边也说了，热点账户的瓶颈是因为大家同时竞争对余额的操作权，更新余额成为稀缺资源，那么我们核心宗旨减少单位时间内对余额的操作。首先我们来看一下第一种方式，限流。限流与缓存...<br>
-      <!-- <p><h4 id="背景介绍">背景介绍</h4> <p>账务系统作为互联金融领域的基石系统，承载着所有账户的资金管控，那保证它的稳定可靠是系统建设的第一要务，我们知道在数据库中某个账户余额是一行记录，如果一个大商户每天出入金巨大，那就涉及到对该行记录频繁的更新，这对数据库是巨大的考验，接下来我就和大家一起聊一聊怎么去解决和规避这种频繁的操作问题。</p> <p>今天分享的是关于如何解决互联网热点账户的问题。互联网解决了人们交易活动地域上的限制，产生了很多巨无霸的商家，对这些巨无霸商家交易账户的操作就成了热点操作，这些热点操作主要体现在账户的明细和余额上面，而这两个操作的更新又是在一个事务中进行的，但是对余额操作是稀缺的资源，所以更新余额就成了瓶颈。今天我和大家一起来聊一下如何解决和规避热点账户的问题（图1）。</p> <p align="center"> <img src="https://unionstars.github.io//assets/images/pictures/2020-02-20-hot_account/01.png?style=centerme" alt="Sample" width="50%" height="50%" /> <p align="center"> <em>图1</em> </p> </p> <h4 id="三户模型">三户模型</h4> <p>如图所示，上面是某个商户的交易数据，假设4个交易数据同时过来，它们同时对明细进行插入，然后更新余额，这个时候我们可以看到，因为他们更新的是同一个账户的余额，所以这个时候，需要竞争对该行的操作权。该行成为热点行。这也就是我们上边所说的热点账户问题。</p>...<br> -->
-    </div>
-    <div class="text-muted">
-      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
-      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
-      
-    </div>
-  </div>
-</div>
-
-<!-- old home -->
-<div class="post-item" style="display:none;">
-  <div class="caption wrapper-lg">
     <h4 class="post-title"><a class="post-link" href="/tool/microservices_arc/">微服务架构设计模式</a></h4>
     <div class="line line-lg"></div>
     <div class="post-sum">
@@ -130,43 +113,27 @@
   </div>
 </div>
 
+<!-- old home -->
+<div class="post-item" style="display:none;">
+  <div class="caption wrapper-lg">
+    <h4 class="post-title"><a class="post-link" href="/mysql/pay-step-5-accounting/">支付系统-账务</a></h4>
+    <div class="line line-lg"></div>
+    <div class="post-sum">
+      <p>前置学习 在开发和维护账务系统前，务必请学习以下会计基础知识。 会计主体 定义：会计工作为之服务的特定单位或组织 ，又称会计个体或会计实体 。 分类： 名称 解释 资产 是指过去的交易 、事项形成并由企业拥有或控制的资源 ，该资源预期会给企业带来经济利益 。 负债 是指过去的交易或事项形成的现时义务 ，履行该义务预期会导致经济利益流出企业 。 所有者权益 是指所有者在企业资产中享有的经济利益...<br>
+      <!-- <p><h4 id="前置学习">前置学习</h4> <p><code class="language-plaintext highlighter-rouge">在开发和维护账务系统前，务必请学习以下会计基础知识。</code></p> <p><code class="language-plaintext highlighter-rouge">会计主体</code></p> <p>定义：会计工作为之服务的特定单位或组织 ，又称会计个体或会计实体 。</p> <p><code class="language-plaintext highlighter-rouge">分类：</code></p> <table> <thead> <tr> <th>名称</th> <th>解释</th> </tr>...<br> -->
+    </div>
+    <div class="text-muted">
+      <i class="fa fa-user icon-muted"></i> by <a href="https://github.com/maddenmandel" class="m-r-sm">XueGang Zhang</a>
+      <i class="fa fa-clock-o icon-muted"></i> Jul 11, 2018
+      
+    </div>
+  </div>
+</div>
+
 
 <section class="panel panel-default portlet-item">
   <header class="panel-heading"><strong>Article List</strong></header>
   <section class="panel-body">
-    
-      <article class="media">
-  <div class="pull-left">
-  <span class="fa-stack fa-lg">
-    <i class="fa fa-circle fa-stack-2x"></i>
-    
-      <i class="fa fa-leaf fa-stack-1x text-white"></i>
-    
-  </span>
-</div>
-  <div class="media-body">
-    <a href="/tool/hot_account/" class="h5 text-success">如何识别与解决热点账户</a>
-    <small class="block m-t-xs">
-      
-        archtecture
-        , 
-      
-        refactoring
-        , 
-      
-        tool
-        
-      
-    </small>
-    <em class="text-xs">
-      Posted on <span class="text-danger">Jul 11, 2018</span>
-    </em>
-  </div>
-</article>
-
-  <div class="line pull-in"></div>
-
-
     
       <article class="media">
   <div class="pull-left">
@@ -296,6 +263,39 @@
   </div>
 </article>
 
+  <div class="line pull-in"></div>
+
+
+    
+      <article class="media">
+  <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-dropbox fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+  <div class="media-body">
+    <a href="/mysql/pay-step-5-accounting/" class="h5 text-success">支付系统-账务</a>
+    <small class="block m-t-xs">
+      
+        index
+        , 
+      
+        mysql
+        , 
+      
+        database
+        
+      
+    </small>
+    <em class="text-xs">
+      Posted on <span class="text-danger">Jul 11, 2018</span>
+    </em>
+  </div>
+</article>
+
 
     
   </section>
@@ -317,13 +317,9 @@
         <li class="active"><a href="/page2">2</a></li>
       
     
-      
-        <li><a href="/page3">3</a></li>
-      
-    
 
     
-      <li><a href="/page3"><i class="fa fa-chevron-right"></i></a></li>
+      <li><a href="#"><i class="fa fa-chevron-right"></i></a></li>
     
   </ul>
 </div>
@@ -370,7 +366,7 @@
     
       <li>
         <a href="/categories/tool/" class="dk">
-          <span class="badge pull-right">8</span>
+          <span class="badge pull-right">7</span>
           Tool
         </a>
       </li>
@@ -407,22 +403,6 @@
       <div class="pull-left">
   <span class="fa-stack fa-lg">
     <i class="fa fa-circle fa-stack-2x"></i>
-    
-  </span>
-</div>
-      <div class="media-body">
-        <a href="/tool/stability-monitor/" class="font-semibold">如何快速基于普罗米修斯实现系统可观测性</a>
-        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jan 2025</div>
-      </div>
-    </article>
-    <div class="line"></div>
-  
-    <article class="media">
-      <div class="pull-left">
-  <span class="fa-stack fa-lg">
-    <i class="fa fa-circle fa-stack-2x"></i>
-    
-      <i class="fa fa-leaf fa-stack-1x text-white"></i>
     
   </span>
 </div>
@@ -497,6 +477,22 @@
     </article>
     <div class="line"></div>
   
+    <article class="media">
+      <div class="pull-left">
+  <span class="fa-stack fa-lg">
+    <i class="fa fa-circle fa-stack-2x"></i>
+    
+      <i class="fa fa-leaf fa-stack-1x text-white"></i>
+    
+  </span>
+</div>
+      <div class="media-body">
+        <a href="/tool/microservices_arc/" class="font-semibold">微服务架构设计模式</a>
+        <div class="text-xs block m-t-xs"><a href="https://github.com/maddenmandel">Victor</a> 11 Jul 2018</div>
+      </div>
+    </article>
+    <div class="line"></div>
+  
 </div>
 
   <h5 class="font-semibold">Archives</h5>
@@ -508,10 +504,6 @@
     
       <li><a href="/archives#012025" class="dk">January 2025</a></li>
       <li class="line"></li>
-    
-  
-    
-    
     
   
     
